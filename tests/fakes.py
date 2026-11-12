@@ -153,9 +153,12 @@ def a1111_server(variant: str = "a1111", prefix: str = "") -> FakeServer:
                                                        "metadata": {}}]
     versions = {"a1111": {"app": "stable-diffusion-webui", "version": "v1.10.1"},
                 "forge": {"app": "stable-diffusion-webui", "version": "f2.0.1v1.10.1-previous"},
+                "forge2": None,
                 "sdnext": {"app": "sd.next", "version": "2026-11-01"}}
-    s.routes[("GET", "/sdapi/v1/version")] = lambda r: versions[variant]
-    flags = {"a1111": {"api": True}, "forge": {"api": True, "cuda_malloc": False, "always_gpu": False},
+    s.routes[("GET", "/sdapi/v1/version")] = lambda r: versions[variant] if versions[variant] else Reply(404, {"detail": "Not Found"})
+    if variant == "forge2":
+        s.routes[("GET", "/sdapi/v1/sd-modules")] = lambda r: [{"model_name": "ae", "filename": "/x/ae.safetensors"}]
+    flags = {"a1111": {"api": True}, "forge": {"api": True, "cuda_malloc": False, "always_gpu": False}, "forge2": {"api": True},
              "sdnext": {"use_ipex": False, "backend": "diffusers"}}
     s.routes[("GET", "/sdapi/v1/cmd-flags")] = lambda r: flags[variant]
     s.state_options = {"sd_model_checkpoint": "hassakuSD15_v13.safetensors [7eb674963a]"}

@@ -34,6 +34,7 @@ def free_port() -> int:
     [
         (lambda: a1111_server("a1111"), "a1111"),
         (lambda: a1111_server("forge"), "forge"),
+        (lambda: a1111_server("forge2"), "forge"),
         (lambda: a1111_server("sdnext"), "sdnext"),
         (comfyui_server, "comfyui"),
         (swarmui_server, "swarmui"),

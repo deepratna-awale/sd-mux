@@ -58,6 +58,10 @@ def _a1111_variant(http: Transport) -> tuple[str, str, str | None]:
             return "forge", "Forge launch flags in /sdapi/v1/cmd-flags", label
         if "use_ipex" in flags and "backend" in flags:
             return "sdnext", "SD.Next launch flags in /sdapi/v1/cmd-flags", label
+    # Forge 2.x (lllyasviel) parses its own flags elsewhere, so cmd-flags looks like A1111's;
+    # it replaces /sdapi/v1/sd-vae with /sdapi/v1/sd-modules.
+    if isinstance(_json(http, "GET", "/sdapi/v1/sd-modules"), list):
+        return "forge", "/sdapi/v1/sd-modules (Forge 2.x)", label
     if isinstance(version, dict) and str(version.get("version", "")).startswith(("f", "classic")):
         return "forge", "Forge version string", label
     return "a1111", "/sdapi/v1 API", label
@@ -74,7 +78,7 @@ def detect(url: str, options: Options | None = None, **overrides) -> Detection:
         NotReady: something answers, but it is not a supported backend (the message says what to check).
     """
     opts = Options.build(options, **overrides)
-    opts.retries = 0
+    opts.retries = min(opts.retries, 1)  # one retry covers a keep-alive connection the server dropped
     http = Transport(url, opts, "server")
     detection = Detection(None)
     refused: AuthRefused | None = None
