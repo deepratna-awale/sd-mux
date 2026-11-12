@@ -101,7 +101,8 @@ info.evidence        # [Evidence(field, value, source, detail, confidence)]
 info.conflicts       # where sources disagreed, and what was kept
 info.profile         # dialect + defaults
 
-sdmux.identify(path, online=True)                # adds Civitai's by-hash lookup (hash reused from sidecars/A1111 cache, else computed and cached)
+sdmux.identify(path, online=True)                # adds by-hash lookups on Civitai, CivArchive, modelindex.dev, Hugging Face
+info.links                                       # where the file is published: civitai.com/.red, Tensor.Art, SeaArt, PixAI, Hugging Face, ...
 sd.identify("hassaku")                           # a model the backend lists: reads the file when it is on this machine
 ```
 
@@ -109,8 +110,23 @@ Formats: `.safetensors`, `.gguf`, and torch `.ckpt` / `.pt` (zip or legacy). Pic
 by a data-only stack machine; nothing in them is imported or executed.
 
 Family sources, most trusted first: sidecar files (`.metadata.json` from ComfyUI LoRA Manager, `.civitai.info`,
-`.civitai.json`, StabilityMatrix `.cm-info.json`, Civitai Browser+/Helper `.json`), Civitai (only with `online=True`),
-`__metadata__` (`modelspec.*`, kohya `ss_*`, merge recipes), then the file name. Tensors decide kind and architecture.
+`.civitai.json`, StabilityMatrix `.cm-info.json`, Civitai Browser+/Helper `.json`), online lookups (only with
+`online=True`), `__metadata__` (`modelspec.*`, kohya `ss_*`, merge recipes), then the file name. Tensors decide kind
+and architecture.
+
+Online lookups (sha256 reused from a sidecar or A1111's hash cache when there is one, otherwise computed once and
+cached by path, size and mtime; every answer is cached):
+
+| Service | What it adds |
+|---|---|
+| Civitai (`civitai.com`, then `civitai.red`) | `baseModel` -> architecture/family/variant, model and version ids, trigger words |
+| CivArchive (`civarchive.com`) | models on Tensor.Art, SeaArt, Shakker, PixAI, Yodayo/Moescape, Tungsten, ... and models deleted from Civitai; `baseModel` and mirror links |
+| modelindex.dev | Hugging Face and ModelScope repositories hosting the exact file |
+| Hugging Face model card | `base_model` lineage and diffusers pipeline (architecture) for those repositories |
+
+Pick services with `identify(path, online=True, sources=("civitai", "civarchive"))`, `sdmux identify --sources ...`,
+or `SDMUX_LOOKUPS=civitai,huggingface`. Hugging Face, ModelScope, Tensor.Art, SeaArt and Shakker have no public
+by-hash search of their own, which is why the aggregators are used.
 
 ```bash
 sdmux detect http://127.0.0.1:7860

@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 
 from . import family as fam
 from .civitai import civitai_lookup, file_sha256
+from .lookups import Link, env_sources, lookup_all
 from .headers import Header, HeaderError, read_header
 from .profiles import Profile, build_profile
 from .rules import analyse, prediction as find_prediction, ztsnr
@@ -32,7 +33,7 @@ FIELDS = ("kind", "architecture", "family", "prediction", "variant")
 class Evidence:
     field: str
     value: object
-    source: str  # header | sidecar:<file> | civitai | metadata | filename | backend
+    source: str  # header | sidecar:<file> | civitai | civarchive:<platform> | huggingface | modelindex | metadata | filename | backend
     detail: str
     confidence: str  # high | medium | low
 
@@ -56,6 +57,7 @@ class ModelInfo:
     zero_terminal_snr: bool = False
     text_encoder: str | None = None
     civitai: dict | None = None
+    links: list = field(default_factory=list)  # Link: where the file is published (online lookups)
     metadata: dict = field(default_factory=dict)
     evidence: list[Evidence] = field(default_factory=list)
     conflicts: list[str] = field(default_factory=list)
@@ -72,7 +74,7 @@ class ModelInfo:
             "path": self.path, "name": self.name, "kind": self.kind, "architecture": self.architecture,
             "family": self.family, "prediction": self.prediction, "variant": self.variant, "format": self.format,
             "size": self.size, "sha256": self.sha256, "trained_on": self.trained_on,
-            "zero_terminal_snr": self.zero_terminal_snr, "text_encoder": self.text_encoder, "civitai": self.civitai,
+            "zero_terminal_snr": self.zero_terminal_snr, "text_encoder": self.text_encoder, "civitai": self.civitai, "links": [l.__dict__ for l in self.links],
             "evidence": [e.__dict__ for e in self.evidence], "conflicts": self.conflicts,
             "profile": self.profile.to_dict() if self.kind in ("checkpoint", "diffusion_model", "unknown") else None,
         }
@@ -83,7 +85,8 @@ class ModelInfo:
 
 def _decide(info: ModelInfo, candidates: list[Evidence]) -> None:
     """Pick each field's value from the most trusted evidence; record disagreements."""
-    order = {"header": 5, "civitai": 4, "sidecar": 4, "backend": 3, "metadata": 2, "filename": 1}
+    order = {"header": 5, "civitai": 4, "sidecar": 4, "civarchive": 4, "backend": 3, "huggingface": 3, "metadata": 2,
+             "modelindex": 2, "filename": 1}
 
     def rank(e: Evidence):
         source = e.source.split(":", 1)[0]
@@ -103,12 +106,14 @@ def _decide(info: ModelInfo, candidates: list[Evidence]) -> None:
 
 
 def identify(path, online: bool = False, *, hash_file: bool | None = None, civitai_key: str | None = None,
-             timeout: float = 15.0) -> ModelInfo:
+             sources: tuple[str, ...] | None = None, timeout: float = 15.0) -> ModelInfo:
     """
     Identify a model file. Reads the header (safetensors, GGUF, or a torch .ckpt walked without unpickling),
     sidecar files next to it, its embedded metadata and its name.
 
-    online=True also asks Civitai by sha256. The hash comes from a sidecar or an A1111 hash cache when one
+    online=True also looks the sha256 up on Civitai (civitai.com, then civitai.red), CivArchive (Tensor.Art, SeaArt,
+    Shakker, PixAI, deleted Civitai models, ...), modelindex.dev (Hugging Face / ModelScope) and the Hugging Face model
+    card. sources limits which (default: all, or $SDMUX_LOOKUPS). The hash comes from a sidecar or an A1111 hash cache when one
     exists; otherwise the file is hashed (cached by path, size and mtime). hash_file=True hashes even offline.
     """
     path = os.fspath(path)
@@ -161,16 +166,7 @@ def identify(path, online: bool = False, *, hash_file: bool | None = None, civit
             info.sha256 = file_sha256(path)
             info.evidence.append(Evidence("sha256", info.sha256, "computed", "sha256 of the file", "high"))
         if online:
-            record = civitai_lookup(info.sha256, api_key=civitai_key, timeout=timeout)
-            if record:
-                info.civitai = {k: record.get(k) for k in ("modelId", "id", "name", "baseModel", "baseModelType", "trainedWords")}
-                info.civitai["model"] = (record.get("model") or {}).get("name")
-                for fact in fam._facts_from_base(record.get("baseModel"), "civitai", "baseModel", "high"):
-                    _add_fact(info, candidates, fact)
-                if not any(e.field == "family" for e in candidates):
-                    hit = fam.family_from_name((record.get("model") or {}).get("name"))
-                    if hit:
-                        candidates.append(Evidence("family", hit[0], "civitai", f"model name matches /{hit[1]}/", "medium"))
+            _apply_lookups(info, candidates, info.sha256, sources, civitai_key, timeout)
 
     candidates.extend(_name_evidence(name, "family"))
     if info.trained_on and info.kind == "lora":
@@ -193,14 +189,24 @@ def identify_name(name: str, *, architecture: str | None = None, kind: str = "ch
     candidates.extend(_name_evidence(name, "architecture"))
     candidates.extend(_name_evidence(name, "family"))
     if online and sha256:
-        record = civitai_lookup(sha256, timeout=timeout)
-        if record:
-            info.civitai = {k: record.get(k) for k in ("modelId", "id", "name", "baseModel")}
-            for fact in fam._facts_from_base(record.get("baseModel"), "civitai", "baseModel", "high"):
-                candidates.append(Evidence(fact.field, fact.value, fact.source, fact.detail, fact.confidence))
+        _apply_lookups(info, candidates, sha256, None, None, timeout)
     _decide(info, candidates)
     _finish(info, None)
     return info
+
+
+def _apply_lookups(info, candidates, sha256, sources, civitai_key, timeout) -> None:
+    for result in lookup_all(sha256, tuple(sources) if sources else env_sources(), timeout, civitai_key):
+        for fact in result.facts:
+            candidates.append(Evidence(fact.field, fact.value, fact.source, fact.detail, fact.confidence))
+        for link in result.links:
+            if all(link.url != l.url for l in info.links):
+                info.links.append(link)
+        if result.service == "civitai" and result.record:
+            r = result.record
+            info.civitai = {"modelId": r.get("modelId"), "versionId": r.get("id"), "name": r.get("name"),
+                            "model": (r.get("model") or {}).get("name"), "baseModel": r.get("baseModel"),
+                            "trainedWords": r.get("trainedWords"), "site": r.get("_host")}
 
 
 def _add_fact(info: ModelInfo, candidates: list[Evidence], fact) -> None:

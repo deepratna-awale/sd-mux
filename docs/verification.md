@@ -17,6 +17,8 @@ What was checked, against what, on 2026-11-11 and 2026-11-12.
 | `input_blocks.0.0.weight` `shape[1]` is 9 for inpaint and 8 for instruct-pix2pix | **Confirmed for 8** (`SD15_instructpix2pix` / `SDXL_instructpix2pix` set `in_channels: 8`). ComfyUI treats any `in_channels > 4` as an inpaint model and does not name 9 itself; 9 is the standard SD inpainting UNet (4 latent + 4 masked-image latent + 1 mask), tested with a synthetic header. | `comfy/supported_models.py:508-529`, `comfy/supported_models_base.py:70` |
 | ComfyUI function names in the brief | `detect_unet_config` is at line 44 and `unet_prefix_from_state_dict` at 1356 as stated. **`unet_config_from_diffusers_unet` does not exist**; the diffusers path is `model_config_from_diffusers_unet` at line 1577. | ComfyUI commit `29e28e2b` |
 
+| Other model hosts with a hash lookup (added 2026-11-12) | civitai.red serves the same by-hash API as civitai.com (checked with a real call). CivArchive answers `GET /api/sha256/{hash}` with a `model` block (baseModel, platform, mirrors); an unknown hash still returns stray `files` but no `model`. modelindex.dev answers `GET /api/v1/hash/sha256:{hash}` with Hugging Face / ModelScope matches, 404 `HASH_UNKNOWN` otherwise. Hugging Face's `/api/models/{repo}` gives `cardData.base_model` and `diffusers:` tags. No public by-hash API was found for Hugging Face itself, Tensor.Art, SeaArt, Shakker or LiblibAI. | live calls 2026-11-12 |
+
 ## Live runs
 
 Each backend ran `tests/live_check.py` with `hassakuSD15_v13` and the LoRA `2b_nierautomata-10` at 512x512, 8 steps:

@@ -14,7 +14,6 @@ import json
 import os
 import threading
 
-CIVITAI_BY_HASH = "https://civitai.com/api/v1/model-versions/by-hash/{sha256}"
 _lock = threading.Lock()
 
 
@@ -76,8 +75,14 @@ def file_sha256(path: str, chunk: int = 8 * 1024 * 1024) -> str:
     return value
 
 
-def civitai_lookup(sha256: str | None, api_key: str | None = None, timeout: float = 15.0) -> dict | None:
-    """The Civitai model-version record for a sha256, None when Civitai does not know it. Results are cached."""
+def civitai_lookup(sha256: str | None, api_key: str | None = None, timeout: float = 15.0,
+                   hosts: tuple[str, ...] = ("https://civitai.com", "https://civitai.red")) -> dict | None:
+    """
+    The Civitai model-version record for a sha256, None when Civitai does not know it. Results are cached.
+
+    civitai.com is asked first; civitai.red (same API and accounts, mature content) when .com answers 404.
+    The record carries "_host": the site that answered.
+    """
     if not sha256:
         return None
     sha256 = sha256.lower()
@@ -93,21 +98,24 @@ def civitai_lookup(sha256: str | None, api_key: str | None = None, timeout: floa
     key = api_key or os.environ.get("CIVITAI_API_KEY")
     if key:
         headers["Authorization"] = f"Bearer {key}"
-    try:
-        response = requests.get(CIVITAI_BY_HASH.format(sha256=sha256), headers=headers, timeout=timeout)
-    except requests.RequestException:
-        return None  # offline or blocked: not cached, so a later call can retry
-    if response.status_code == 404:
-        record = {}
-    elif response.status_code == 200:
+    record: dict = {}
+    for host in hosts:
+        try:
+            response = requests.get(f"{host}/api/v1/model-versions/by-hash/{sha256}", headers=headers, timeout=timeout)
+        except requests.RequestException:
+            return None  # offline or blocked: not cached, so a later call can retry
+        if response.status_code == 404:
+            continue
+        if response.status_code != 200:
+            return None
         try:
             record = response.json()
         except ValueError:
             return None
         record.pop("description", None)
         record.pop("images", None)
-    else:
-        return None
+        record["_host"] = host
+        break
     with _lock:
         cache = _read_cache("civitai.json")
         cache[sha256] = record

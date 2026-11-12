@@ -88,3 +88,12 @@ Not used: `GenerateText2ImageWS` (step progress), model downloads and editing.
 Graph nodes: `main_model_loader`, `clip_skip`, `lora_selector` + `collect` + `lora_collection_loader`, `compel`, `noise`,
 `denoise_latents`, `i2l`, `create_gradient_mask`, `l2i` (Live, SD 1.5); `sdxl_model_loader`, `sdxl_compel_prompt`,
 `sdxl_lora_collection_loader` (Mock).
+
+## Model lookups (`identify(online=True)`)
+
+| Route | Gives | Verified |
+|---|---|---|
+| `GET https://civitai.com/api/v1/model-versions/by-hash/{sha256}`, then `civitai.red` on 404 | baseModel, ids, trigger words | Live (both hosts) |
+| `GET https://civarchive.com/api/sha256/{sha256}` | baseModel, platform, mirrors (Tensor.Art, SeaArt, PixAI, Yodayo, Tungsten, Hugging Face, ...) | Live |
+| `GET https://modelindex.dev/api/v1/hash/sha256:{sha256}` | Hugging Face / ModelScope repos hosting the file | Live |
+| `GET https://huggingface.co/api/models/{repo}` | `cardData.base_model`, `diffusers:<Pipeline>` tag | Live |

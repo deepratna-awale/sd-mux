@@ -76,7 +76,8 @@ def cmd_identify(args) -> int:
     status = 0
     for path in _files(args.paths, args.recursive):
         try:
-            info = identify(path, online=args.online)
+            sources = tuple(x.strip() for x in args.sources.split(",")) if args.sources else None
+            info = identify(path, online=args.online or bool(args.sources), sources=sources)
         except OSError as e:
             print(f"{path}: {e}", file=sys.stderr)
             status = 1
@@ -105,6 +106,8 @@ def _print_info(info, verbose: bool) -> None:
         print(f"    note: {c}")
     if info.trained_on:
         print(f"    trained on: {info.trained_on}")
+    for link in info.links[:6]:
+        print(f"    on {link.service}: {link.url}")
     if info.kind in ("checkpoint", "diffusion_model"):
         p = info.profile
         print(f"    profile: {p.dialect}, {p.width}x{p.height}, {p.steps} steps, cfg {p.cfg:g}, {p.sampler}"
@@ -147,7 +150,9 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("identify", help="identify model files from their headers")
     p.add_argument("paths", nargs="+")
-    p.add_argument("--online", action="store_true", help="also ask Civitai by sha256 (hashes the file if needed)")
+    p.add_argument("--online", action="store_true",
+                   help="also look the sha256 up online: Civitai (.com and .red), CivArchive, modelindex.dev, Hugging Face")
+    p.add_argument("--sources", help="comma list of online services to ask (civitai,civarchive,modelindex,huggingface)")
     p.add_argument("--json", action="store_true")
     p.add_argument("-r", "--recursive", action="store_true")
     p.add_argument("-v", "--verbose", action="store_true")

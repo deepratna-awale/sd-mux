@@ -244,13 +244,14 @@ def test_modelspec_metadata(tmp_path):
 def test_civitai_online(tmp_path, monkeypatch):
     calls = []
 
-    def fake_lookup(sha, api_key=None, timeout=15.0):
+    def fake_lookup(sha, api_key=None, timeout=15.0, hosts=()):
         calls.append(sha)
-        return {"id": 2, "modelId": 1, "baseModel": "Pony", "model": {"name": "Some Merge"}}
+        return {"id": 2, "modelId": 1, "baseModel": "Pony", "model": {"name": "Some Merge"}, "_host": "https://civitai.red"}
 
-    import sdmux.modelinfo as mi
+    import sdmux.modelinfo.lookups as lk
 
-    monkeypatch.setattr(mi, "civitai_lookup", fake_lookup)
+    monkeypatch.setattr(lk, "civitai_lookup", fake_lookup)
+    monkeypatch.setenv("SDMUX_LOOKUPS", "civitai")
     monkeypatch.setenv("SDMUX_CACHE_DIR", str(tmp_path / "cache"))
     path = write_st(tmp_path / "plain_name.safetensors", unet(2048))
     offline = identify(path)
@@ -258,6 +259,8 @@ def test_civitai_online(tmp_path, monkeypatch):
     online = identify(path, online=True)
     assert online.family == "pony" and online.why("family")[0].source == "civitai"
     assert len(calls) == 1 and online.sha256 and len(online.sha256) == 64
+    assert online.civitai["site"] == "https://civitai.red"
+    assert online.links[0].url == "https://civitai.red/models/1?modelVersionId=2"
 
 
 def test_identify_name_for_remote_models():
@@ -364,3 +367,44 @@ def test_profile_api():
     assert p.negative_prompt("lowres") == "lowres, score_4, score_5, score_6"
     assert build_profile("flux", None, "dev").guidance == 3.5
     assert build_profile(None, None).dialect == "clip"
+
+
+def test_other_lookup_services(tmp_path, monkeypatch):
+    import sdmux.modelinfo.lookups as lk
+
+    monkeypatch.setenv("SDMUX_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setattr(lk, "civitai_lookup", lambda *a, **k: None)
+    answers = {
+        "https://civarchive.com/api/sha256/" + "ab" * 32: (200, {
+            "files": [{"filename": "x.safetensors", "source": "huggingface", "url": "https://huggingface.co/a/b/x.safetensors"}],
+            "model": {"id": 9, "name": "Some TensorArt Model", "platform": "tensorart", "version": {
+                "id": 10, "baseModel": "NoobAI", "platform_url": "https://tensor.art/models/9",
+                "mirrors": [{"platform": "seaart", "platform_url": "https://www.seaart.ai/models/detail/q", "name": "mirror"}]}}}),
+        "https://modelindex.dev/api/v1/hash/sha256:" + "ab" * 32: (200, {"matches": [
+            {"source": "hf", "org": "Laxhar", "name": "noobai-XL-1.1", "path": "NoobAI-XL-v1.1.safetensors"}]}),
+        "https://huggingface.co/api/models/Laxhar/noobai-XL-1.1": (200, {
+            "cardData": {"base_model": ["Laxhar/noobai-XL-1.0"]}, "tags": ["diffusers:StableDiffusionXLPipeline"]}),
+    }
+    seen = []
+
+    def fake_get(url, timeout, headers=None):
+        seen.append(url)
+        return answers.get(url, (404, {"errors": []}))
+
+    monkeypatch.setattr(lk, "_get_json", fake_get)
+    path = write_st(tmp_path / "plain.safetensors", unet(2048))
+    (tmp_path / "plain.json").write_text(json.dumps({"sha256": "AB" * 32, "sd version": "SDXL"}))
+    info = identify(path, online=True)
+    assert info.family == "noobai" and info.why("family")[0].source == "civarchive:tensorart"
+    services = {l.service for l in info.links}
+    assert {"tensorart", "seaart", "huggingface"} <= services
+    results = {r.service: r for r in lk.lookup_all("ab" * 32)}
+    assert results["huggingface"].facts[0].value == "sdxl"
+    assert any(f.value == "noobai" for f in results["modelindex"].facts)
+    # Answers are cached: asking again makes no new requests.
+    count = len(seen)
+    lk.lookup_all("ab" * 32)
+    assert len(seen) == count
+    # An archive answer without a "model" (stray files sharing the hash) counts as not found.
+    answers["https://civarchive.com/api/sha256/" + "cd" * 32] = (200, {"files": [{"filename": "last.pt", "source": "huggingface"}]})
+    assert not lk.lookup_civarchive("cd" * 32).found
