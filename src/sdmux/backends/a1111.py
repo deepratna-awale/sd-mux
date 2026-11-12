@@ -71,8 +71,8 @@ class A1111(Backend):
         """Scheduler labels. [] where there is no /schedulers route (A1111 before 1.10, SD.Next)."""
         if self._schedulers is None:
             response = self.http.request("GET", "/sdapi/v1/schedulers")
-            if response.status_code == 404:
-                self._schedulers = []
+            if response.status_code >= 400:
+                self._schedulers = []  # 404 before A1111 1.10
             else:
                 items = self.http.json(self.http.check(response, "GET /sdapi/v1/schedulers"))
                 self._schedulers = [s.get("label") or s.get("name") for s in items]
@@ -103,12 +103,12 @@ class A1111(Backend):
 
     # Generation -----------------------------------------------------------
     def _sampler_fields(self, request: Request) -> dict:
-        fields = {}
-        sampler_cid, folded = (sampler_id(request.sampler), None)
-        if request.sampler:
-            from ..names import canonical_sampler
+        from ..names import canonical_sampler
 
-            sampler_cid, folded = canonical_sampler(request.sampler)
+        fields = {}
+        folded = None
+        if request.sampler:
+            _, folded = canonical_sampler(request.sampler)
             native = pick_native(request.sampler, self.samplers(), sampler_id)
             fields["sampler_name"] = native or request.sampler
         scheduler = request.scheduler or folded
@@ -150,8 +150,10 @@ class A1111(Backend):
             "n_iter": 1,
             "send_images": True,
             "save_images": False,
-            **self._sampler_fields(request),
         }
+        sampler_fields = self._sampler_fields(request)
+        overrides.update(sampler_fields.pop("override_settings", {}))
+        payload.update(sampler_fields)
         if overrides:
             payload["override_settings"] = overrides
             payload["override_settings_restore_afterwards"] = self.restore_settings
@@ -250,7 +252,50 @@ class Forge(A1111):
 
 
 class SDNext(A1111):
-    """SD.Next: the same /sdapi/v1 routes; it serves the API without --api."""
+    """
+    SD.Next: the same /sdapi/v1 routes; it serves the API without --api.
+
+    SD.Next runs diffusers schedulers: the sampler list holds them all, and the A1111 scheduler is
+    approximated by its "Sigma algorithm" setting (schedulers_sigma: default, karras, exponential,
+    betas, lambdas, flowmatch). Its /sdapi/v1/schedulers lists samplers, not schedulers.
+    """
 
     kind = "sdnext"
     label = "SD.Next"
+    SIGMAS = ("default", "karras", "betas", "exponential", "lambdas", "flowmatch")
+
+    def schedulers(self) -> list[str]:
+        return list(self.SIGMAS)
+
+    def _sampler_fields(self, request: Request) -> dict:
+        from ..names import canonical_sampler
+
+        fields: dict = {}
+        folded = None
+        if request.sampler:
+            _, folded = canonical_sampler(request.sampler)
+            fields["sampler_name"] = pick_native(request.sampler, self.samplers(), sampler_id) or request.sampler
+        scheduler = request.scheduler or folded
+        if scheduler:
+            cid = canonical_scheduler(scheduler)
+            sigma = cid if cid in self.SIGMAS else ("betas" if cid == "beta" else "default")
+            fields["override_settings"] = {"schedulers_sigma": sigma}
+        return fields
+
+    def build_payload(self, request: Request) -> dict:
+        payload = super().build_payload(request)
+        if request.clip_skip:
+            payload["clip_skip"] = int(request.clip_skip)
+        # SD.Next ignores sd_model_checkpoint in override_settings when no model is loaded yet
+        # ("Aborted: op=process model not loaded"), so the model is switched through /options instead.
+        overrides = payload.get("override_settings") or {}
+        wanted = overrides.pop("sd_model_checkpoint", None)
+        if wanted:
+            current = self.http.get_json("/sdapi/v1/options", timeout=30).get("sd_model_checkpoint") or ""
+            if wanted not in (current, current.split(" [")[0]):
+                self.http.check(self.http.request("POST", "/sdapi/v1/options", json={"sd_model_checkpoint": wanted},
+                                                  timeout=self.options.job_timeout), "model switch")
+        if not overrides:
+            payload.pop("override_settings", None)
+            payload.pop("override_settings_restore_afterwards", None)
+        return payload

@@ -104,7 +104,7 @@ def test_a1111_listings(cls):
         assert sd.models()[0].path == "/nowhere/hassakuSD15_v13.safetensors"
         assert [m.name for m in sd.loras()] == ["detail"]
         assert "Euler a" in sd.samplers()
-        assert sd.schedulers() == ([] if cls is SDNext else ["Automatic", "Karras", "Normal"])
+        assert sd.schedulers() == (list(SDNext.SIGMAS) if cls is SDNext else ["Automatic", "Karras", "Normal"])
         assert sd.info()["version"]
 
 
@@ -128,12 +128,25 @@ def test_a1111_txt2img_payload_and_result():
 
 
 def test_a1111_combined_sampler_name_on_old_server():
-    with a1111_server("sdnext") as s:  # no /schedulers route
-        sd = SDNext(s.url)
-        sd.txt2img("x", sampler="DPM++ 2M Karras")
+    with a1111_server("sdnext") as s:  # no /schedulers route, like A1111 before 1.10
+        sd = A1111(s.url)
+        sd.txt2img("x", sampler="DPM++ 2M", scheduler="Karras")
         body = s.last("POST", "/sdapi/v1/txt2img").json
         assert body["sampler_name"] == "DPM++ 2M Karras"
         assert "scheduler" not in body
+
+
+def test_sdnext_scheduler_as_sigma_setting():
+    with a1111_server("sdnext") as s:
+        sd = SDNext(s.url)
+        sd.txt2img("x", sampler="DPM++ 2M Karras", clip_skip=2)
+        body = s.last("POST", "/sdapi/v1/txt2img").json
+        assert body["sampler_name"] == "DPM++ 2M"
+        assert body["override_settings"]["schedulers_sigma"] == "karras"
+        assert body["clip_skip"] == 2
+        sd.txt2img("x", model="waiIllustrious")
+        assert s.state_options["sd_model_checkpoint"] == "sdxl/waiIllustriousSDXL_v170.safetensors [abc]"
+        assert "sd_model_checkpoint" not in (s.last("POST", "/sdapi/v1/txt2img").json.get("override_settings") or {})
 
 
 def test_a1111_img2img_and_inpaint():

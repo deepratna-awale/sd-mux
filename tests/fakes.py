@@ -158,7 +158,14 @@ def a1111_server(variant: str = "a1111", prefix: str = "") -> FakeServer:
     flags = {"a1111": {"api": True}, "forge": {"api": True, "cuda_malloc": False, "always_gpu": False},
              "sdnext": {"use_ipex": False, "backend": "diffusers"}}
     s.routes[("GET", "/sdapi/v1/cmd-flags")] = lambda r: flags[variant]
-    s.routes[("GET", "/sdapi/v1/options")] = lambda r: {"sd_model_checkpoint": "hassakuSD15_v13.safetensors [7eb674963a]"}
+    s.state_options = {"sd_model_checkpoint": "hassakuSD15_v13.safetensors [7eb674963a]"}
+    s.routes[("GET", "/sdapi/v1/options")] = lambda r: s.state_options
+
+    def set_options(r):
+        s.state_options.update(r.json)
+        return {}
+
+    s.routes[("POST", "/sdapi/v1/options")] = set_options
 
     def generate(r):
         if s.state.get("reject"):
