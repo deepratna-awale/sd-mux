@@ -40,7 +40,8 @@ A refused login raises `AuthRefused`. Credentials are never shown in error messa
 | Route | Used by | Notes | Verified |
 |---|---|---|---|
 | `GET /system_stats` | detection, `info()` | version, python, devices | Live |
-| `GET /object_info/{node}` | `models()`, `loras()`, `samplers()`, `schedulers()`, filling node defaults | cached per node; `refresh()` clears | Live |
+| `GET /object_info/{node}` | `models()`, `loras()`, `samplers()`, `schedulers()`, `node(name)`, filling node defaults | cached per node; `refresh()` clears | Live |
+| `GET /object_info` | `nodes()`: every node with typed inputs/outputs; graph validation | read 1,458 nodes from 12 packs on the test install in 0.2 s | Live |
 | `GET /experiment/models`, `GET /experiment/models/{folder}` | file paths for `models()` / `loras()`, so `identify()` reads local files | | Live |
 | `POST /upload/image` | `img2img()`, `inpaint()` | uploaded once per image content | Live |
 | `POST /prompt` (with `client_id`) | every generation, `run_workflow()` | validation errors -> `Rejected`, one line per input | Live |
@@ -51,7 +52,11 @@ A refused login raises `AuthRefused`. Credentials are never shown in error messa
 | `POST /queue {"delete": [...]}`, `POST /interrupt` | `interrupt()` | drops the job if queued, interrupts it if running | Live |
 | `GET /view_metadata/{folder}?filename=` | `sd.metadata(model)` | safetensors metadata read by the server (works remotely) | Mock |
 
-Graph nodes: `CheckpointLoaderSimple`, `LoraLoader`, `CLIPSetLastLayer`, `CLIPTextEncode`, `EmptyLatentImage`, `LoadImage`,
+Any installed node can be used through `sd.graph()` / `sd.run()` and the `patch=` hook. Discovery and validation
+were checked live against the test install (a graph through Impact Pack's `FaceDetailer` validated; a broken graph
+reported every problem); running such graphs is covered by the fake-server tests only.
+
+Built-in graph nodes: `CheckpointLoaderSimple`, `LoraLoader`, `CLIPSetLastLayer`, `CLIPTextEncode`, `EmptyLatentImage`, `LoadImage`,
 `ImageScale`, `VAEEncode`, `LoadImageMask`, `SetLatentNoiseMask`, `RepeatLatentBatch`, `KSampler`, `VAEDecode`,
 `ImageCompositeMasked`, `PreviewImage` (all Live). Split-file models add `UNETLoader`, `DualCLIPLoader` / `CLIPLoader` /
 `TripleCLIPLoader`, `VAELoader`, `FluxGuidance`, `EmptySD3LatentImage`, `LoraLoaderModelOnly` (Mock).

@@ -96,12 +96,51 @@ except sdmux.Cancelled: ...     # interrupt() stopped it
 `Unsupported` (a `NotReady`) means sdmux cannot build that request for that backend at all.
 All errors derive from `sdmux.SdmuxError` and carry `.code`, `.backend`, `.details`.
 
+### ComfyUI: any node, typed and checked
+
+ComfyUI describes every installed node, custom packs included, at `/object_info`. sdmux turns that into typed specs and
+a graph builder, so any node is usable without hand-written JSON:
+
+```python
+sd.nodes()                       # every node: .name, .category, .pack ("core" or the custom pack)
+print(sd.node("FaceDetailer"))   # inputs with type, default, range, options; named outputs
+
+g = sd.graph()
+ckpt = g.add("CheckpointLoaderSimple", ckpt_name="waiIllustrious")   # file names matched loosely
+pos  = g.add("CLIPTextEncode", text="1girl", clip=ckpt.CLIP)          # outputs by name, index (ckpt[2]) or the node itself
+neg  = g.add("CLIPTextEncode", text="lowres", clip=ckpt.CLIP)
+lat  = g.add("EmptyLatentImage", width=1024, height=1024)            # missing inputs get the server's defaults
+smp  = g.add("KSampler", model=ckpt.MODEL, positive=pos, negative=neg, latent_image=lat, steps=28)
+img  = g.add("VAEDecode", samples=smp, vae=ckpt.VAE)
+det  = g.add("UltralyticsDetectorProvider")
+fd   = g.add("FaceDetailer", image=img, model=ckpt.MODEL, clip=ckpt.CLIP, vae=ckpt.VAE,
+             positive=pos, negative=neg, bbox_detector=det.BBOX_DETECTOR)
+g.add("PreviewImage", images=fd.image)
+r = sd.run(g)                    # r.images; r.raw["outputs"] maps each output node to its images
+```
+
+Before anything is queued, `sd.run()` checks the graph against the server and raises `sdmux.GraphError` listing every
+problem: unknown node (pack not installed) or input, missing required input, link of the wrong type, number out of
+range, value not among the options.
+
+Splice nodes into sdmux's own graphs with `patch=`, or get the graph without running it:
+
+```python
+def upscale(g):
+    up = g.add("ImageUpscaleWithModel", upscale_model=g.add("UpscaleModelLoader", model_name="4x-AnimeSharp"),
+               image=g.ref("decode"))
+    g.ref("output").set(images=up)               # node "output" is what txt2img returns
+
+sd.txt2img("1girl", model="waiIllustrious", patch=upscale)
+g = sd.workflow(prompt="1girl", model="waiIllustrious")   # a Graph; g.to_api() for the raw dict
+```
+
 ### Escape hatches
 
 | Backend | Native path |
 |---|---|
 | A1111 / Forge / SD.Next | `sd.api("txt2img", payload)` posts to any `/sdapi/v1` route; `extra=` merges into the payload |
-| ComfyUI | `sd.run_workflow(api_format_dict)`; also `upload()`, `queue()`, `wait()`, `fetch()`, `node()`, `object_info()` |
+| ComfyUI | `sd.graph()` + `sd.run()` for any node; `sd.run_workflow(api_format_dict)`; also `upload()`, `queue()`, `wait()`, `fetch()`, `object_info()` |
 | SwarmUI | `sd.call("Route", body)` with a live session; `extra=` merges into `GenerateText2Image` |
 | InvokeAI | `sd.enqueue_graph(graph)`, `sd.wait(item_id)`, `sd.fetch(item)`, `sd.upload(image)` |
 
@@ -148,6 +187,7 @@ by-hash search of their own, which is why the aggregators are used.
 ```bash
 sdmux detect http://127.0.0.1:7860
 sdmux models http://127.0.0.1:8188 [--loras] [--json]
+sdmux nodes http://127.0.0.1:8188 [FaceDetailer] [--pack ComfyUI-Impact-Pack]
 sdmux identify ~/models/checkpoints -r [--online] [--json] [-v]
 sdmux txt2img http://127.0.0.1:7860 "a red apple" -o apple.png --model hassaku --steps 20
 ```

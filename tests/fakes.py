@@ -237,6 +237,51 @@ COMFY_NODES = {
 }
 
 
+COMFY_OUTPUTS = {
+    "CheckpointLoaderSimple": (["MODEL", "CLIP", "VAE"], None),
+    "UNETLoader": (["MODEL"], None),
+    "DualCLIPLoader": (["CLIP"], None),
+    "VAELoader": (["VAE"], None),
+    "FluxGuidance": (["CONDITIONING"], None),
+    "LoraLoader": (["MODEL", "CLIP"], None),
+    "LoraLoaderModelOnly": (["MODEL"], None),
+    "KSampler": (["LATENT"], None),
+    "CLIPTextEncode": (["CONDITIONING"], None),
+    "CLIPSetLastLayer": (["CLIP"], None),
+    "EmptyLatentImage": (["LATENT"], None),
+    "EmptySD3LatentImage": (["LATENT"], None),
+    "LoadImage": (["IMAGE", "MASK"], None),
+    "LoadImageMask": (["MASK"], None),
+    "VAEEncode": (["LATENT"], None),
+    "VAEDecode": (["IMAGE"], None),
+    "SetLatentNoiseMask": (["LATENT"], None),
+    "ImageCompositeMasked": (["IMAGE"], None),
+    "ImageScale": (["IMAGE"], None),
+    "RepeatLatentBatch": (["LATENT"], None),
+    "MaskToImage": (["IMAGE"], None),
+    "ImageToMask": (["MASK"], None),
+    "PreviewImage": ([], None),
+}
+for _name, (_types, _names) in COMFY_OUTPUTS.items():
+    COMFY_NODES[_name].update({"output": _types, "output_name": _names or _types, "python_module": "nodes",
+                               "category": "sampling" if "Sampler" in _name else "loaders" if "Loader" in _name else "image",
+                               "output_node": _name == "PreviewImage"})
+COMFY_NODES["KSampler"]["input"]["required"]["steps"] = ["INT", {"default": 20, "min": 1, "max": 10000}]
+COMFY_NODES["KSampler"]["input"]["required"]["cfg"] = ["FLOAT", {"default": 8.0, "min": 0.0, "max": 100.0}]
+# A custom-pack node, as Impact Pack declares it.
+COMFY_NODES["UpscaleModelLoader"] = {"input": {"required": {"model_name": [["4x-AnimeSharp.pth", "RealESRGAN_x4plus.pth"]]}},
+                                     "output": ["UPSCALE_MODEL"], "output_name": ["UPSCALE_MODEL"], "python_module": "comfy_extras.nodes_upscale_model",
+                                     "category": "loaders", "output_node": False}
+COMFY_NODES["ImageUpscaleWithModel"] = {"input": {"required": {"upscale_model": ["UPSCALE_MODEL"], "image": ["IMAGE"]}},
+                                        "output": ["IMAGE"], "output_name": ["IMAGE"], "python_module": "comfy_extras.nodes_upscale_model",
+                                        "category": "image/upscaling", "output_node": False}
+COMFY_NODES["FaceDetailer"] = {"input": {"required": {"image": ["IMAGE"], "model": ["MODEL"], "guide_size": ["FLOAT", {"default": 512, "min": 64, "max": 8192}],
+                                                      "sam_detection_hint": [["center-1", "none"]]},
+                                         "optional": {"wildcard": ["STRING", {"multiline": True}]}},
+                               "output": ["IMAGE", "IMAGE", "MASK"], "output_name": ["image", "cropped_refined", "mask"],
+                               "python_module": "custom_nodes.ComfyUI-Impact-Pack", "category": "ImpactPack/Simple", "output_node": False}
+
+
 def comfyui_server() -> FakeServer:
     s = FakeServer()
     s.state = {"history": {}, "mode": "ok", "queued": []}
@@ -248,6 +293,7 @@ def comfyui_server() -> FakeServer:
         return {node: COMFY_NODES[node]} if node in COMFY_NODES else {}
 
     s.routes[("GET", "/object_info/*")] = object_info
+    s.routes[("GET", "/object_info")] = lambda r: COMFY_NODES
     s.routes[("GET", "/experiment/models")] = lambda r: [{"name": "checkpoints", "folders": ["/comfy/models/checkpoints"]},
                                                          {"name": "loras", "folders": ["/comfy/models/loras"]},
                                                          {"name": "diffusion_models", "folders": ["/comfy/models/diffusion_models"]}]
