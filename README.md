@@ -41,12 +41,29 @@ Images can be PIL images, bytes, file paths or base64 strings. Every generation 
 `batch_size`, `vae`, `mask_blur`, `inpaint_full_res`, `inpaint_padding`, and `extra={...}` for
 backend-native fields.
 
-### Profiles: start from sensible defaults
+### Defaults come from the model
+
+Settings a call leaves out (size, steps, cfg, sampler and scheduler, clip skip) are filled from the model's profile,
+so the same call suits whatever model it runs on, on every backend:
+
+```python
+r = sd.txt2img("1girl, smile", model="waiIllustrious")   # 1024x1024, 28 steps, cfg 6, Euler a, clip skip 2
+r.defaults        # {"steps": (28, "profile:waiIllustriousSDXL_v170.safetensors"), ...}: what sdmux filled, and from where
+```
+
+Anything passed explicitly wins. A sampler given without a scheduler is not paired with the profile's scheduler.
+img2img and inpaint keep the input image's size. Without `model=`, the profile is that of the model the backend
+will use (A1111's loaded checkpoint, otherwise the first listed). When a model cannot be identified, or with
+`sdmux.connect(url, defaults="fixed")`, missing size/steps/cfg become 512x512, 20 steps, cfg 7 and the server picks
+sampler, scheduler and clip skip.
+
+### Profiles: prompt helpers
 
 ```python
 p = sd.profile("waiIllustrious")          # identify the listed model, then look up its profile
 p.dialect                                 # "danbooru"
-r = sd.txt2img(p.prompt("1girl, smile"), negative=p.negative_prompt("lowres"), model="waiIllustrious", **p.defaults)
+r = sd.txt2img(p.prompt("1girl, smile"), negative=p.negative_prompt("lowres"), model="waiIllustrious")
+# p.prompt() adds the family's quality tags ("masterpiece, best quality, amazing quality"); settings come from p.defaults automatically
 ```
 
 Profiles are **starting points, not tuned truth**. Quality tags and negatives are seeded from

@@ -62,7 +62,8 @@ class Request:
 
     mode is txt2img, img2img or inpaint. Names (model, sampler, scheduler, LoRAs in the
     prompt) are matched against what the backend lists. seed -1 means random; the seed
-    actually used is reported in Result.seed. clip_skip uses A1111 numbering (1 = none,
+    actually used is reported in Result.seed. Settings left as None (size, steps, cfg, sampler,
+    scheduler, clip_skip) are filled from the model's profile (see Backend defaults). clip_skip uses A1111 numbering (1 = none,
     2 = skip the last layer). For inpaint, white mask pixels are repainted.
 
     extra holds backend-native fields merged into the native request as-is
@@ -76,8 +77,8 @@ class Request:
     model: str | None = None
     width: int | None = None
     height: int | None = None
-    steps: int = 20
-    cfg: float = 7.0
+    steps: int | None = None
+    cfg: float | None = None
     sampler: str | None = None
     scheduler: str | None = None
     seed: int = -1
@@ -106,6 +107,7 @@ class Result:
     parameters: str = ""
     backend: str = ""
     raw: Any = None
+    defaults: dict = field(default_factory=dict)  # settings sdmux filled in, and from where ("profile:<model>" / "fallback")
 
     @property
     def image(self) -> Image.Image:

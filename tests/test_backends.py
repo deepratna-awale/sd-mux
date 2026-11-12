@@ -490,3 +490,40 @@ def test_comfy_view_retries_a_dropped_download():
         s.routes[("GET", "/view")] = flaky
         r = ComfyUI(s.url).txt2img("x")
         assert r.image and calls["n"] == 2
+
+
+# Defaults from the model profile -------------------------------------------------------
+def test_profile_defaults_fill_missing_settings():
+    with comfyui_server() as s:
+        sd = ComfyUI(s.url)
+        r = sd.txt2img("1girl", model="waiIllustrious", seed=1)
+        wf = s.last("POST", "/prompt").json["prompt"]
+        ks = wf["sampler"]["inputs"]
+        assert wf["latent"]["inputs"]["width"] == 1024 and (ks["steps"], ks["cfg"]) == (28, 6.0)
+        assert ks["sampler_name"] == "euler_ancestral"
+        assert wf["clip_skip"]["inputs"]["stop_at_clip_layer"] == -2
+        assert r.defaults["steps"] == (28, "profile:waiIllustriousSDXL_v170.safetensors")
+        # Anything passed explicitly wins; a sampler without a scheduler is not mixed with the profile's.
+        r = sd.txt2img("1girl", model="waiIllustrious", steps=5, sampler="DPM++ 2M", width=768, height=768)
+        ks = s.last("POST", "/prompt").json["prompt"]["sampler"]["inputs"]
+        assert (ks["steps"], ks["sampler_name"], ks["scheduler"]) == (5, "dpmpp_2m", "normal")
+        assert "steps" not in r.defaults and "scheduler" not in r.defaults
+        # img2img keeps the input image's size.
+        sd.img2img(img(size=(96, 64)), "x", model="waiIllustrious")
+        assert "scaled" not in s.last("POST", "/prompt").json["prompt"]
+
+
+def test_fixed_defaults_and_current_model():
+    with comfyui_server() as s:
+        sd = ComfyUI(s.url, defaults="fixed")
+        r = sd.txt2img("1girl", model="waiIllustrious")
+        wf = s.last("POST", "/prompt").json["prompt"]
+        assert wf["latent"]["inputs"]["width"] == 512 and wf["sampler"]["inputs"]["steps"] == 20
+        assert "clip_skip" not in wf and r.defaults["steps"] == (20, "fallback")
+    with pytest.raises(ValueError):
+        ComfyUI("http://127.0.0.1:1", defaults="nope")
+    with a1111_server() as s:
+        A1111(s.url).txt2img("x")  # no model=: the profile of the loaded checkpoint (hassaku: SD 1.5 anime)
+        body = s.last("POST", "/sdapi/v1/txt2img").json
+        assert (body["width"], body["steps"], body["sampler_name"], body["scheduler"]) == (512, 25, "DPM++ 2M", "Karras")
+        assert body["override_settings"]["CLIP_stop_at_last_layers"] == 2

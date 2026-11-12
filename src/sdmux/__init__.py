@@ -19,13 +19,17 @@ from .transport import Options  # noqa: E402
 from .types import Model, Progress, Request, Result  # noqa: E402
 
 
-def connect(url: str, kind: str | None = None, options: Options | None = None, **option_overrides):
+def connect(url: str, kind: str | None = None, options: Options | None = None, defaults: str = "profile",
+            **option_overrides):
     """
     Connect to the backend at url and return its client.
 
     kind skips detection ("a1111", "forge", "reforge", "sdnext", "comfyui", "swarmui", "invokeai").
     Connection options: username, password, token, headers, connect_timeout, timeout, job_timeout,
     retries, verify_tls, poll_interval. Credentials in the URL (https://user:pass@host) work too.
+
+    defaults: "profile" (default) fills settings a call leaves out from the model's profile; "fixed" uses
+    sdmux's fixed size/steps/cfg and leaves sampler, scheduler and clip skip to the server.
     """
     from .backends import BACKENDS
     from .probe import detect
@@ -36,7 +40,7 @@ def connect(url: str, kind: str | None = None, options: Options | None = None, *
         cls = BACKENDS[kind.lower()]
     except KeyError:
         raise ValueError(f"Unknown backend kind {kind!r}. Known: {', '.join(sorted(BACKENDS))}") from None
-    return cls(url, options, **option_overrides)
+    return cls(url, options, defaults=defaults, **option_overrides)
 
 
 def detect(url: str, **option_overrides):

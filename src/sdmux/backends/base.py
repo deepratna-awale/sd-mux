@@ -7,6 +7,7 @@ import threading
 from typing import TYPE_CHECKING
 
 from ..errors import NotReady, Rejected
+from ..errors import SdmuxError
 from ..names import canonical_scheduler, extract_loras, lora_stem, match_choice
 from ..transport import Options, Transport
 from ..types import IMG2IMG, INPAINT, TXT2IMG, Model, Progress, Request, Result, load_image
@@ -32,7 +33,20 @@ class Backend:
     label = ""
     default_url = "http://127.0.0.1:7860"
 
-    def __init__(self, url: str | None = None, options: Options | None = None, **option_overrides) -> None:
+    #: Fixed values for settings neither the caller nor the model profile provides.
+    FALLBACK = {"width": 512, "height": 512, "steps": 20, "cfg": 7.0}
+
+    def __init__(self, url: str | None = None, options: Options | None = None, defaults: str = "profile",
+                 **option_overrides) -> None:
+        """
+        defaults: "profile" (settings a call leaves out come from the model's profile: size, steps, cfg,
+        sampler, scheduler, clip skip) or "fixed" (sdmux's FALLBACK size, steps and cfg; sampler, scheduler
+        and clip skip are left to the server). Whatever is still missing after the profile gets FALLBACK.
+        """
+        if defaults not in ("profile", "fixed"):
+            raise ValueError("defaults must be 'profile' or 'fixed'.")
+        self.defaults = defaults
+        self._profiles: dict = {}
         self.options = Options.build(options, **option_overrides)
         self.http = Transport(url or self.default_url, self.options, self.label)
         self.options = self.http.options
@@ -99,8 +113,53 @@ class Backend:
 
     def generate(self, request: Request) -> Result:
         request = self._prepare(request)
+        filled = self._fill_defaults(request)
         self._cancel.clear()
-        return self._generate(request)
+        result = self._generate(request)
+        result.defaults = filled
+        return result
+
+    def current_model(self) -> str | None:
+        """The model a request without model= runs on. Most backends use the first listed one."""
+        return None
+
+    def _profile_for(self, model):
+        key = model.name if isinstance(model, Model) else (model or self.current_model() or "")
+        if key not in self._profiles:
+            try:
+                resolved = self.resolve_model(model or self.current_model())
+                self._profiles[key] = (resolved.name, self.identify(resolved).profile)
+            except (SdmuxError, OSError, ValueError):
+                self._profiles[key] = (None, None)
+        return self._profiles[key]
+
+    def _fill_defaults(self, request: Request) -> dict:
+        """Fill settings the caller left as None; returns {field: (value, source)}."""
+        filled: dict = {}
+
+        def put(name, value, source):
+            if getattr(request, name) is None and value is not None:
+                setattr(request, name, value)
+                filled[name] = (value, source)
+
+        if self.defaults == "profile":
+            name, profile = self._profile_for(request.model)
+            if profile is not None:
+                source = f"profile:{name}"
+                if request.mode == TXT2IMG:
+                    put("width", profile.width, source)
+                    put("height", profile.height, source)
+                put("steps", profile.steps, source)
+                put("cfg", profile.cfg, source)
+                if request.sampler is None and request.scheduler is None:
+                    put("sampler", profile.sampler, source)
+                    scheduler = profile.scheduler if profile.scheduler and profile.scheduler.lower() != "automatic" else None
+                    put("scheduler", scheduler, source)
+                put("clip_skip", profile.clip_skip, source)
+        # Size, steps and cfg are always sent, so whatever is still missing gets sdmux's fixed values.
+        for name, value in self.FALLBACK.items():
+            put(name, value, "fallback")
+        return filled
 
     def _generate(self, request: Request) -> Result:
         raise NotImplementedError
@@ -123,8 +182,6 @@ class Backend:
             request.mask = load_image(request.mask)
         if request.scheduler and canonical_scheduler(request.scheduler) == "automatic":
             request.scheduler = None  # the backend's own default
-        request.width = request.width or 512
-        request.height = request.height or 512
         if request.batch_size < 1:
             raise ValueError("batch_size must be at least 1.")
         return request
