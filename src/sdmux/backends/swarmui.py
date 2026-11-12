@@ -78,6 +78,7 @@ class SwarmUI(Backend):
         self._logged_in = False
         self._params: dict[str, dict] | None = None
         self._server: dict = {}
+        self._features: list[str] | None = None
 
     # Session --------------------------------------------------------------
     def _log_in(self) -> None:
@@ -143,6 +144,12 @@ class SwarmUI(Backend):
     def schedulers(self) -> list[str]:
         return self.param_values("scheduler")
 
+    def features(self) -> list[str]:
+        """SwarmUI's supported_features (from its backends): 'comfyui', 'variation_seed' (Swarm's core nodes), ..."""
+        if self._features is None:
+            self._features = list(self.call("GetCurrentStatus").get("supported_features") or [])
+        return self._features
+
     def info(self) -> dict:
         if not self._server:
             self._new_session()
@@ -178,7 +185,8 @@ class SwarmUI(Backend):
             "model": model.name,
             "steps": request.steps,
             "cfgscale": request.cfg,
-            "seed": request.seed if request.seed is not None else -1,
+            # Resolved here: with donotsave SwarmUI returns images without the metadata that would name the seed.
+            "seed": request.resolved_seed() % (2**31),
             "width": request.width,
             "height": request.height,
             "aspectratio": "Custom",
@@ -198,7 +206,9 @@ class SwarmUI(Backend):
             body["initimagecreativity"] = request.denoise
         if request.mode == INPAINT:
             body["maskimage"] = to_b64(request.mask.convert("L"))
-            if request.mask_blur:
+            # Mask blur runs through SwarmUI's own ComfyUI nodes (SwarmMaskBlur). A ComfyUI backend without
+            # them (no "variation_seed" feature) rejects the whole workflow, so blur is skipped there.
+            if request.mask_blur and "variation_seed" in self.features():
                 body["maskblur"] = request.mask_blur
             if request.inpaint_full_res:
                 body["maskshrinkgrow"] = request.inpaint_padding
@@ -226,7 +236,7 @@ class SwarmUI(Backend):
         for ref in refs:
             image = self._image(ref["image"] if isinstance(ref, dict) else ref)
             params = _swarm_params(image)
-            seed = params.get("seed")
+            seed = params.get("seed", body["seed"])
             seeds.append(seed)
             text = infotext(request, seed=seed, size=image.size, sampler=params.get("sampler") or body.get("sampler"),
                             scheduler=params.get("scheduler") or body.get("scheduler"), model=body["model"],

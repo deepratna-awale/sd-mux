@@ -362,7 +362,8 @@ def swarmui_server(require_login: bool = False) -> FakeServer:
 
     s.routes[("POST", "/API/InterruptAll")] = session_route(interrupt)
     s.routes[("POST", "/API/GetCurrentStatus")] = session_route(lambda r: {"status": {"waiting_gens": 0, "live_gens": 1, "loading_models": 0},
-                                                                           "backend_status": {"status": "running", "message": ""}})
+                                                                           "backend_status": {"status": "running", "message": ""},
+                                                                           "supported_features": ["comfyui", "variation_seed"]})
     return s
 
 
