@@ -1,5 +1,5 @@
 {
-  "_comment": "Starting points, not tuned truth. Quality tags and negatives are seeded from AutoExpress's expression families. Lookup order: architecture+family, family, architecture, default. A profile entry overrides only the keys it sets.",
+  "_comment": "Starting points, not tuned truth. Quality tags and negatives come from per-family prompt sets. Lookup order: architecture+family, family, architecture, default. A profile entry overrides only the keys it sets.",
   "default": {
     "dialect": "clip",
     "width": 512, "height": 512, "steps": 25, "cfg": 7.0,
