@@ -1,0 +1,53 @@
+{
+  "_comment": "Starting points, not tuned truth. Quality tags and negatives come from per-family prompt sets. Lookup order: architecture+family, family, architecture, default. A profile entry overrides only the keys it sets.",
+  "default": {
+    "dialect": "clip",
+    "width": 512, "height": 512, "steps": 25, "cfg": 7.0,
+    "sampler": "DPM++ 2M", "scheduler": "Karras", "clip_skip": 1,
+    "quality": "", "negative": ""
+  },
+  "architectures": {
+    "sd15": {"width": 512, "height": 512},
+    "sd2": {"width": 768, "height": 768},
+    "sdxl": {"width": 1024, "height": 1024, "steps": 30, "cfg": 6.5},
+    "sdxl-refiner": {"width": 1024, "height": 1024, "steps": 20, "cfg": 6.5, "note": "Refiner: use for img2img passes at low denoise, not txt2img."},
+    "sd3": {"dialect": "natural", "width": 1024, "height": 1024, "steps": 28, "cfg": 4.5, "sampler": "Euler", "scheduler": "SGM Uniform"},
+    "flux": {"dialect": "natural", "width": 1024, "height": 1024, "steps": 20, "cfg": 1.0, "guidance": 3.5, "sampler": "Euler", "scheduler": "Simple"},
+    "flux2": {"dialect": "natural", "width": 1024, "height": 1024, "steps": 28, "cfg": 1.0, "guidance": 4.0, "sampler": "Euler", "scheduler": "Simple"},
+    "chroma": {"dialect": "natural", "width": 1024, "height": 1024, "steps": 26, "cfg": 4.0, "sampler": "Euler", "scheduler": "Beta"},
+    "qwen-image": {"dialect": "natural", "width": 1328, "height": 1328, "steps": 20, "cfg": 2.5, "sampler": "Euler", "scheduler": "Simple"},
+    "lumina2": {"dialect": "natural", "width": 1024, "height": 1024, "steps": 25, "cfg": 4.0, "sampler": "Euler", "scheduler": "Simple"},
+    "hidream": {"dialect": "natural", "width": 1024, "height": 1024, "steps": 30, "cfg": 5.0, "sampler": "UniPC", "scheduler": "Simple"},
+    "auraflow": {"dialect": "natural", "width": 1024, "height": 1024, "steps": 25, "cfg": 3.5, "sampler": "Euler", "scheduler": "Simple"},
+    "pixart": {"dialect": "natural", "width": 1024, "height": 1024, "steps": 20, "cfg": 4.5, "sampler": "Euler", "scheduler": "Normal"},
+    "stable-cascade": {"dialect": "natural", "width": 1024, "height": 1024, "steps": 20, "cfg": 4.0, "sampler": "Euler a", "scheduler": "Simple"},
+    "hunyuan-dit": {"dialect": "natural", "width": 1024, "height": 1024, "steps": 30, "cfg": 6.0, "sampler": "Euler", "scheduler": "Normal"}
+  },
+  "variants": {
+    "schnell": {"steps": 4, "cfg": 1.0, "guidance": null},
+    "turbo": {"steps": 6, "cfg": 2.0, "sampler": "Euler a", "scheduler": "SGM Uniform"},
+    "lightning": {"steps": 8, "cfg": 1.5, "sampler": "Euler", "scheduler": "SGM Uniform"},
+    "lcm": {"steps": 6, "cfg": 1.5, "sampler": "LCM", "scheduler": "SGM Uniform"},
+    "hyper": {"steps": 8, "cfg": 1.5, "sampler": "Euler", "scheduler": "SGM Uniform"}
+  },
+  "predictions": {
+    "v": {"note": "v-prediction: the backend must run it as v-pred (A1111/Forge read it from the model or a .yaml; ComfyUI reads v_pred keys or needs ModelSamplingDiscrete).", "sampler": "Euler", "scheduler": "Normal", "cfg": 5.0}
+  },
+  "families": {
+    "pony": {"dialect": "pony", "steps": 25, "cfg": 7.0, "sampler": "Euler a", "scheduler": "Automatic", "clip_skip": 2,
+             "quality": "score_9, score_8_up, score_7_up", "negative": "score_4, score_5, score_6"},
+    "illustrious": {"dialect": "danbooru", "steps": 28, "cfg": 6.0, "sampler": "Euler a", "scheduler": "Automatic", "clip_skip": 2,
+                    "quality": "masterpiece, best quality, amazing quality", "negative": "worst quality, low quality, bad anatomy"},
+    "noobai": {"dialect": "danbooru", "steps": 28, "cfg": 5.0, "sampler": "Euler a", "scheduler": "Automatic", "clip_skip": 2,
+               "quality": "masterpiece, best quality, amazing quality", "negative": "worst quality, low quality, bad anatomy"},
+    "animagine": {"dialect": "danbooru", "steps": 28, "cfg": 6.0, "sampler": "Euler a", "scheduler": "Automatic", "clip_skip": 2,
+                  "quality": "masterpiece, best quality", "negative": "worst quality, low quality"},
+    "anime": {"dialect": "danbooru", "steps": 25, "cfg": 7.0, "sampler": "DPM++ 2M", "scheduler": "Karras", "clip_skip": 2,
+              "quality": "masterpiece, best quality", "negative": "worst quality, low quality"},
+    "furry": {"dialect": "e621", "steps": 30, "cfg": 7.0, "sampler": "Euler a", "scheduler": "Automatic", "clip_skip": 1,
+              "quality": "best quality, detailed", "negative": "worst quality, low quality"},
+    "sdxl": {"dialect": "clip"},
+    "playground": {"dialect": "clip", "cfg": 3.0, "sampler": "DPM++ 2M", "scheduler": "Karras"},
+    "z-image": {"dialect": "natural"}
+  }
+}

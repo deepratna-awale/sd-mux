@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sdmux"
+version = "0.1.0"
+description = "One client for every local image generation backend, with checkpoint identification built in."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Deepratna Awale" }]
+requires-python = ">=3.10"
+dependencies = ["requests>=2.25", "pillow>=9"]
+keywords = ["stable-diffusion", "comfyui", "automatic1111", "forge", "sdnext", "swarmui", "invokeai", "safetensors"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Multimedia :: Graphics",
+]
+
+[project.optional-dependencies]
+progress = ["websocket-client>=1.4"]
+test = ["pytest>=7"]
+
+[project.scripts]
+sdmux = "sdmux.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/deepratna-awale/sd-mux"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+sdmux = ["resources/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["live: needs a running backend (set SDMUX_LIVE_URL)"]
+addopts = "-m 'not live'"
