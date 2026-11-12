@@ -3,6 +3,7 @@ sdmux command line.
 
     sdmux detect <url>
     sdmux models <url> [--loras] [--json]
+    sdmux nodes <url> [NodeName] [--pack P] [--json]
     sdmux identify <file-or-folder>... [--online] [--json] [--recursive]
     sdmux txt2img <url> "<prompt>" [-o out.png] [--model M] [--steps N] ...
 """
@@ -50,6 +51,29 @@ def cmd_models(args) -> int:
         schedulers = sd.schedulers()
         if schedulers:
             print(f"schedulers: {', '.join(schedulers)}")
+    return 0
+
+
+def cmd_nodes(args) -> int:
+    import sdmux
+
+    sd = sdmux.connect(args.url, **_auth(args))
+    if not hasattr(sd, "nodes"):
+        print(f"{sd.kind} has no node graph; nodes are a ComfyUI feature.", file=sys.stderr)
+        return 2
+    if args.node:
+        spec = sd.node(args.node)
+        if spec is None:
+            print(f"No node {args.node!r}.", file=sys.stderr)
+            return 1
+        print(json.dumps(spec.raw, indent=2) if args.json else spec)
+        return 0
+    nodes = [n for n in sd.nodes() if not args.pack or n.pack.lower() == args.pack.lower()]
+    if args.json:
+        print(json.dumps([{"name": n.name, "category": n.category, "pack": n.pack} for n in nodes], indent=2))
+    else:
+        for n in nodes:
+            print(f"{n.name:<45} {n.pack:<28} {n.category}")
     return 0
 
 
@@ -147,6 +171,12 @@ def main(argv: list[str] | None = None) -> int:
     remote(p)
     p.add_argument("--loras", action="store_true")
     p.set_defaults(func=cmd_models)
+
+    p = sub.add_parser("nodes", help="list a ComfyUI server's nodes, or show one node's inputs and outputs")
+    remote(p)
+    p.add_argument("node", nargs="?")
+    p.add_argument("--pack", help="only nodes from this custom node pack ('core' for built-ins)")
+    p.set_defaults(func=cmd_nodes)
 
     p = sub.add_parser("identify", help="identify model files from their headers")
     p.add_argument("paths", nargs="+")

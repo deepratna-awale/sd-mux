@@ -17,6 +17,7 @@ __version__ = "0.1.0"
 from .errors import AuthRefused, Cancelled, NotReady, Rejected, SdmuxError, TimedOut, Unreachable, Unsupported  # noqa: E402
 from .transport import Options  # noqa: E402
 from .types import Model, Progress, Request, Result  # noqa: E402
+from .comfygraph import Graph, GraphError, NodeSpec  # noqa: E402
 
 
 def connect(url: str, kind: str | None = None, options: Options | None = None, defaults: str = "profile",
@@ -58,7 +59,7 @@ def identify(path, online: bool = False, **kwargs):
 
 
 __all__ = [
-    "connect", "detect", "identify", "Options", "Request", "Result", "Progress", "Model",
+    "connect", "detect", "identify", "Options", "Graph", "GraphError", "NodeSpec", "Request", "Result", "Progress", "Model",
     "SdmuxError", "Unreachable", "TimedOut", "AuthRefused", "NotReady", "Rejected", "Cancelled", "Unsupported",
     "__version__",
 ]

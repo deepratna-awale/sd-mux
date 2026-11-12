@@ -92,6 +92,7 @@ class Request:
     inpaint_padding: int = 32
     vae: str | None = None
     extra: dict = field(default_factory=dict)
+    patch: Any = None  # ComfyUI only: callable(Graph) that edits the built graph before it runs
 
     def resolved_seed(self) -> int:
         return self.seed if self.seed is not None and self.seed >= 0 else random_seed()

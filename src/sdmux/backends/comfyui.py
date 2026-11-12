@@ -76,6 +76,7 @@ class ComfyUI(Backend):
         self._prompt_id: str | None = None
         self._progress: Progress | None = None
         self._folders: dict[str, list[str]] | None = None
+        self._all_nodes: dict | None = None
 
     # Server info ----------------------------------------------------------
     def object_info(self, node: str, refresh: bool = False) -> dict:
@@ -90,6 +91,58 @@ class ComfyUI(Backend):
             self._object_info[node] = info[node]
         return self._object_info[node]
 
+    # Node contract --------------------------------------------------------
+    def nodes(self, refresh: bool = False) -> list:
+        """Every node the server has loaded (custom packs included), as NodeSpecs sorted by name."""
+        from ..comfygraph import parse_spec
+
+        if refresh or self._all_nodes is None:
+            info = self.http.get_json("/object_info", timeout=max(self.options.timeout, 120))
+            self._all_nodes = {name: parse_spec(name, entry) for name, entry in info.items()}
+            self._object_info.update(info)
+        return [self._all_nodes[k] for k in sorted(self._all_nodes)]
+
+    def node(self, name: str):
+        """The typed spec of one node (inputs with types, defaults, ranges, options; named outputs), None if missing."""
+        from ..comfygraph import parse_spec
+
+        if self._all_nodes is not None and name in self._all_nodes:
+            return self._all_nodes[name]
+        info = self.object_info(name)
+        return parse_spec(name, info) if info else None
+
+    def graph(self, workflow: dict | None = None):
+        """A new Graph checked against this server's nodes, or one wrapping an existing API-format workflow."""
+        from ..comfygraph import Graph
+
+        return Graph.from_api(workflow, self.node) if workflow is not None else Graph(self.node)
+
+    def run(self, graph, validate: bool = True, timeout: float | None = None) -> Result:
+        """
+        Validate a Graph against the node contract and run it. Result.images holds every output image;
+        Result.raw["outputs"] maps each output node id to its images.
+        """
+        if validate:
+            graph.validate()
+        workflow = graph.to_api()
+        result = self.run_workflow(workflow, timeout)
+        entry = result.raw["history"]
+        result.raw["outputs"] = {node_id: self.fetch(entry, node_id) for node_id in (entry.get("outputs") or {})}
+        return result
+
+    def workflow(self, request: Request | None = None, **kwargs):
+        """
+        The Graph sdmux would run for a request (or txt2img keyword arguments), without running it.
+        Images in an img2img/inpaint request are uploaded so the graph is runnable.
+        """
+        request = request or Request(**kwargs)
+        request = self._prepare(request)
+        self._fill_defaults(request)
+        request.seed = request.resolved_seed()
+        image_name = self.upload(request.image) if request.image is not None else None
+        mask_name = self.upload(request.mask, "mask") if request.mask is not None else None
+        return self.graph(self.build_workflow(request, image_name, mask_name))
+
     def options_for(self, node: str, name: str, refresh: bool = False) -> list[str]:
         inputs = self.object_info(node, refresh).get("input", {})
         spec = inputs.get("required", {}).get(name) or inputs.get("optional", {}).get(name)
@@ -98,6 +151,7 @@ class ComfyUI(Backend):
     def refresh(self) -> None:
         """Forget cached node info; ComfyUI rescans model folders on the next /object_info call."""
         self._object_info.clear()
+        self._all_nodes = None
         self._folders = None
 
     def _model_folders(self) -> dict[str, list[str]]:
@@ -173,7 +227,7 @@ class ComfyUI(Backend):
         return {"ready": not problems, "problems": problems, "info": info}
 
     # Workflow helpers -----------------------------------------------------
-    def node(self, class_type: str, inputs: dict) -> dict:
+    def _node(self, class_type: str, inputs: dict) -> dict:
         """A workflow node, with required inputs the server declares but were not given set to their defaults."""
         info = self.object_info(class_type).get("input", {})
         declared = {**info.get("required", {}), **info.get("optional", {})}
@@ -206,11 +260,11 @@ class ComfyUI(Backend):
     def _loaders(self, workflow: dict, request: Request, model: Model) -> tuple[list, list, list, dict]:
         """Add the model loaders; returns (model, clip, vae) links and sampling hints."""
         if model.kind == "checkpoint":
-            workflow["ckpt"] = self.node("CheckpointLoaderSimple", {"ckpt_name": model.name})
+            workflow["ckpt"] = self._node("CheckpointLoaderSimple", {"ckpt_name": model.name})
             links = (["ckpt", 0], ["ckpt", 1], ["ckpt", 2])
             if request.vae:
                 vae = self._pick(request.vae, "VAELoader", "vae_name", lambda s: s.lower(), "")
-                workflow["vae"] = self.node("VAELoader", {"vae_name": vae})
+                workflow["vae"] = self._node("VAELoader", {"vae_name": vae})
                 links = (links[0], links[1], ["vae", 0])
             return (*links, {})
 
@@ -223,7 +277,7 @@ class ComfyUI(Backend):
                 f"(architecture {arch or 'unknown'}). Use run_workflow() with your own graph.",
                 backend=self.kind,
             )
-        workflow["unet"] = self.node("UNETLoader", {"unet_name": model.name, "weight_dtype": "default"})
+        workflow["unet"] = self._node("UNETLoader", {"unet_name": model.name, "weight_dtype": "default"})
         loader, clip_type, encoders = spec["clip"]
         if loader == "DualCLIPLoader":
             names = {"clip_name1": self._find_file(loader, "clip_name1", (encoders[0],), "text encoder"),
@@ -236,9 +290,9 @@ class ComfyUI(Backend):
         clip_inputs = dict(names)
         if clip_type:
             clip_inputs["type"] = clip_type
-        workflow["clip"] = self.node(loader, clip_inputs)
+        workflow["clip"] = self._node(loader, clip_inputs)
         vae_name = request.vae or self._find_file("VAELoader", "vae_name", spec["vae"], "VAE")
-        workflow["vae"] = self.node("VAELoader", {"vae_name": vae_name})
+        workflow["vae"] = self._node("VAELoader", {"vae_name": vae_name})
         return ["unet", 0], ["clip", 0], ["vae", 0], spec
 
     def build_workflow(self, request: Request, image_name: str | None = None, mask_name: str | None = None) -> dict:
@@ -251,56 +305,56 @@ class ComfyUI(Backend):
         for i, (lora, weight) in enumerate(loras):
             node_id = f"lora_{i}"
             if model.kind == "checkpoint":
-                workflow[node_id] = self.node("LoraLoader", {"model": model_link, "clip": clip_link, "lora_name": lora.name,
+                workflow[node_id] = self._node("LoraLoader", {"model": model_link, "clip": clip_link, "lora_name": lora.name,
                                                              "strength_model": weight, "strength_clip": weight})
                 model_link, clip_link = [node_id, 0], [node_id, 1]
             else:
-                workflow[node_id] = self.node("LoraLoaderModelOnly", {"model": model_link, "lora_name": lora.name,
+                workflow[node_id] = self._node("LoraLoaderModelOnly", {"model": model_link, "lora_name": lora.name,
                                                                       "strength_model": weight})
                 model_link = [node_id, 0]
 
         if request.clip_skip and request.clip_skip > 1 and model.kind == "checkpoint":
-            workflow["clip_skip"] = self.node("CLIPSetLastLayer", {"clip": clip_link, "stop_at_clip_layer": -int(request.clip_skip)})
+            workflow["clip_skip"] = self._node("CLIPSetLastLayer", {"clip": clip_link, "stop_at_clip_layer": -int(request.clip_skip)})
             clip_link = ["clip_skip", 0]
 
-        workflow["positive"] = self.node("CLIPTextEncode", {"text": prompt, "clip": clip_link})
-        workflow["negative"] = self.node("CLIPTextEncode", {"text": request.negative, "clip": clip_link})
+        workflow["positive"] = self._node("CLIPTextEncode", {"text": prompt, "clip": clip_link})
+        workflow["negative"] = self._node("CLIPTextEncode", {"text": request.negative, "clip": clip_link})
         positive = ["positive", 0]
         if hints.get("guidance") is not None:
-            workflow["guidance"] = self.node("FluxGuidance", {"conditioning": positive, "guidance": hints["guidance"]})
+            workflow["guidance"] = self._node("FluxGuidance", {"conditioning": positive, "guidance": hints["guidance"]})
             positive = ["guidance", 0]
 
         width, height = int(request.width), int(request.height)
         if request.mode == TXT2IMG:
             latent_node = "EmptySD3LatentImage" if model.kind != "checkpoint" and self.object_info("EmptySD3LatentImage") else "EmptyLatentImage"
-            workflow["latent"] = self.node(latent_node, {"width": width, "height": height, "batch_size": request.batch_size})
+            workflow["latent"] = self._node(latent_node, {"width": width, "height": height, "batch_size": request.batch_size})
             latent = ["latent", 0]
         else:
-            workflow["image"] = self.node("LoadImage", {"image": image_name})
+            workflow["image"] = self._node("LoadImage", {"image": image_name})
             pixels = ["image", 0]
             if (width, height) != request.image.size:
-                workflow["scaled"] = self.node("ImageScale", {"image": pixels, "upscale_method": "lanczos",
+                workflow["scaled"] = self._node("ImageScale", {"image": pixels, "upscale_method": "lanczos",
                                                               "width": width, "height": height, "crop": "disabled"})
                 pixels = ["scaled", 0]
-            workflow["encode"] = self.node("VAEEncode", {"pixels": pixels, "vae": vae_link})
+            workflow["encode"] = self._node("VAEEncode", {"pixels": pixels, "vae": vae_link})
             latent = ["encode", 0]
             if request.mode == INPAINT:
-                workflow["mask"] = self.node("LoadImageMask", {"image": mask_name, "channel": "red"})
+                workflow["mask"] = self._node("LoadImageMask", {"image": mask_name, "channel": "red"})
                 mask = ["mask", 0]
                 if request.mask.size != (width, height):
-                    workflow["mask_image"] = self.node("MaskToImage", {"mask": mask})
-                    workflow["mask_scaled"] = self.node("ImageScale", {"image": ["mask_image", 0], "upscale_method": "bilinear",
+                    workflow["mask_image"] = self._node("MaskToImage", {"mask": mask})
+                    workflow["mask_scaled"] = self._node("ImageScale", {"image": ["mask_image", 0], "upscale_method": "bilinear",
                                                                        "width": width, "height": height, "crop": "disabled"})
-                    workflow["mask_resized"] = self.node("ImageToMask", {"image": ["mask_scaled", 0], "channel": "red"})
+                    workflow["mask_resized"] = self._node("ImageToMask", {"image": ["mask_scaled", 0], "channel": "red"})
                     mask = ["mask_resized", 0]
-                workflow["noise_mask"] = self.node("SetLatentNoiseMask", {"samples": latent, "mask": mask})
+                workflow["noise_mask"] = self._node("SetLatentNoiseMask", {"samples": latent, "mask": mask})
                 latent = ["noise_mask", 0]
             if request.batch_size > 1:
-                workflow["batch"] = self.node("RepeatLatentBatch", {"samples": latent, "amount": request.batch_size})
+                workflow["batch"] = self._node("RepeatLatentBatch", {"samples": latent, "amount": request.batch_size})
                 latent = ["batch", 0]
 
         cfg = request.cfg
-        workflow["sampler"] = self.node(
+        workflow["sampler"] = self._node(
             "KSampler",
             {
                 "model": model_link,
@@ -316,12 +370,12 @@ class ComfyUI(Backend):
                 "denoise": 1.0 if request.mode == TXT2IMG else min(max(float(request.denoise), 0.0), 1.0),
             },
         )
-        workflow["decode"] = self.node("VAEDecode", {"samples": ["sampler", 0], "vae": vae_link})
+        workflow["decode"] = self._node("VAEDecode", {"samples": ["sampler", 0], "vae": vae_link})
         output = ["decode", 0]
         if request.mode == INPAINT:
             # Keep pixels outside the mask exactly as they were, as A1111 does.
             base = workflow.get("scaled") and ["scaled", 0] or ["image", 0]
-            workflow["composite"] = self.node("ImageCompositeMasked", {"destination": base, "source": output, "x": 0, "y": 0,
+            workflow["composite"] = self._node("ImageCompositeMasked", {"destination": base, "source": output, "x": 0, "y": 0,
                                                                        "resize_source": False, "mask": workflow["noise_mask"]["inputs"]["mask"]})
             output = ["composite", 0]
         workflow["output"] = {"class_type": "PreviewImage", "inputs": {"images": output}}
@@ -436,6 +490,12 @@ class ComfyUI(Backend):
         image_name = self.upload(request.image) if request.image is not None else None
         mask_name = self.upload(request.mask, "mask") if request.mask is not None else None
         workflow = self.build_workflow(request, image_name, mask_name)
+        if request.patch is not None:
+            # The caller's hook edits the built graph: add nodes, rewire, change inputs. Node "output" is returned.
+            graph = self.graph(workflow)
+            request.patch(graph)
+            graph.validate()
+            workflow = graph.to_api()
         with self._lock:
             stop = self._listen()
             try:
@@ -449,11 +509,11 @@ class ComfyUI(Backend):
         images = self.fetch(entry, "output")
         if not images:
             raise Rejected("ComfyUI finished without an output image.", backend=self.kind, details=entry)
-        sampler = workflow["sampler"]["inputs"]
+        sampler = (workflow.get("sampler") or {}).get("inputs") or {}
         loader = workflow.get("ckpt") or workflow.get("unet")
         model_name = (loader["inputs"].get("ckpt_name") or loader["inputs"].get("unet_name")) if loader else None
-        text = infotext(request, seed=request.seed, size=images[0].size, sampler=sampler["sampler_name"],
-                        scheduler=sampler["scheduler"], model=model_name, version="ComfyUI")
+        text = infotext(request, seed=request.seed, size=images[0].size, sampler=sampler.get("sampler_name"),
+                        scheduler=sampler.get("scheduler"), model=model_name, version="ComfyUI")
         for image in images:
             image.info["parameters"] = text
         return Result(images=images, seed=request.seed, seeds=[request.seed] * len(images), parameters=text,

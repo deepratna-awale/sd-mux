@@ -182,6 +182,10 @@ class Backend:
             request.mask = load_image(request.mask)
         if request.scheduler and canonical_scheduler(request.scheduler) == "automatic":
             request.scheduler = None  # the backend's own default
+        if request.patch is not None and self.kind != "comfyui":
+            from ..errors import Unsupported
+
+            raise Unsupported(f"patch= edits a ComfyUI graph; {self.label} has none.", backend=self.kind)
         if request.batch_size < 1:
             raise ValueError("batch_size must be at least 1.")
         return request

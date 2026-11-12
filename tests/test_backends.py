@@ -527,3 +527,84 @@ def test_fixed_defaults_and_current_model():
         body = s.last("POST", "/sdapi/v1/txt2img").json
         assert (body["width"], body["steps"], body["sampler_name"], body["scheduler"]) == (512, 25, "DPM++ 2M", "Karras")
         assert body["override_settings"]["CLIP_stop_at_last_layers"] == 2
+
+
+# ComfyUI node contract and graph builder --------------------------------------------------
+def test_comfy_node_discovery():
+    with comfyui_server() as s:
+        sd = ComfyUI(s.url)
+        names = [n.name for n in sd.nodes()]
+        assert "FaceDetailer" in names and names == sorted(names)
+        fd = sd.node("FaceDetailer")
+        assert fd.pack == "ComfyUI-Impact-Pack" and sd.node("KSampler").pack == "core"
+        assert fd.inputs["guide_size"].min == 64 and not fd.inputs["wildcard"].required
+        assert [o.name for o in fd.outputs] == ["image", "cropped_refined", "mask"]
+        ks = sd.node("KSampler")
+        assert ks.inputs["sampler_name"].options[:2] == ["euler", "euler_ancestral"]
+        assert "out 0 LATENT" in str(ks)
+        assert sd.node("NoSuchNode") is None
+
+
+def test_comfy_graph_builder_runs_any_node():
+    with comfyui_server() as s:
+        sd = ComfyUI(s.url)
+        g = sd.graph()
+        ckpt = g.add("CheckpointLoaderSimple", ckpt_name="waiIllustrious")      # loose file-name match
+        pos = g.add("CLIPTextEncode", text="1girl", clip=ckpt.CLIP)
+        neg = g.add("CLIPTextEncode", text="lowres", clip=ckpt.clip)            # case-insensitive output names
+        lat = g.add("EmptyLatentImage", width=1024, height=1024)
+        smp = g.add("KSampler", model=ckpt.MODEL, positive=pos, negative=neg, latent_image=lat, steps=10)
+        img = g.add("VAEDecode", samples=smp, vae=ckpt[2])
+        up = g.add("ImageUpscaleWithModel", upscale_model=g.add("UpscaleModelLoader", model_name="4x-AnimeSharp"), image=img)
+        fd = g.add("FaceDetailer", image=up, model=ckpt.MODEL)
+        g.add("PreviewImage", images=fd.image)
+        api = g.to_api()
+        assert api["1"]["inputs"]["ckpt_name"] == "waiIllustriousSDXL_v170.safetensors"
+        assert api["5"]["inputs"]["sampler_name"] == "euler" and api["5"]["inputs"]["cfg"] == 8.0   # server defaults
+        assert api["5"]["inputs"]["model"] == ["1", 0] and api["6"]["inputs"]["vae"] == ["1", 2]
+        r = sd.run(g)
+        assert r.images and set(r.raw["outputs"]) == {"10"}
+        assert s.last("POST", "/prompt").json["prompt"] == api
+
+
+def test_comfy_graph_validation_reports_every_problem():
+    with comfyui_server() as s:
+        sd = ComfyUI(s.url)
+        g = sd.graph()
+        ckpt = g.add("CheckpointLoaderSimple", ckpt_name="nope.safetensors")
+        g.add("KSampler", model=ckpt.CLIP, steps=0, sampler_name="bogus", typo=1)
+        g.add("NotInstalled", x=1)
+        with pytest.raises(sdmux.GraphError) as e:
+            sd.run(g)
+        text = "\n".join(e.value.problems)
+        for expected in ("'nope.safetensors' is not one of the options", "expects MODEL, got CLIP", "0 is below the minimum 1",
+                         "'bogus' is not one of the options", "no input 'typo'", "missing required input 'positive'",
+                         "no node 'NotInstalled'", "no output node"):
+            assert expected in text, expected
+        assert not any(r.method == "POST" and r.path == "/prompt" for r in s.requests)
+        with pytest.raises(ValueError):
+            g.add("KSampler", model=ckpt)            # three outputs: must pick one
+        with pytest.raises(AttributeError):
+            ckpt.LATENT
+
+
+def test_comfy_patch_hook_and_workflow():
+    with comfyui_server() as s:
+        sd = ComfyUI(s.url)
+        g = sd.workflow(prompt="1girl", model="hassaku", steps=4, seed=1)
+        assert g.ref("sampler").inputs["steps"] == 4 and g.find("KSampler")
+
+        def add_upscale(graph):
+            loader = graph.add("UpscaleModelLoader", model_name="RealESRGAN_x4plus")
+            up = graph.add("ImageUpscaleWithModel", upscale_model=loader, image=graph.ref("decode"))
+            graph.ref("output").set(images=up)
+
+        sd.txt2img("1girl", model="hassaku", steps=4, patch=add_upscale)
+        wf = s.last("POST", "/prompt").json["prompt"]
+        up_id = next(k for k, v in wf.items() if v["class_type"] == "ImageUpscaleWithModel")
+        assert wf["output"]["inputs"]["images"] == [up_id, 0]
+        with pytest.raises(sdmux.GraphError):
+            sd.txt2img("1girl", model="hassaku", patch=lambda g: g.ref("sampler").set(steps=-1))
+    with a1111_server() as s:
+        with pytest.raises(sdmux.Unsupported):
+            A1111(s.url).txt2img("x", patch=lambda g: None)
