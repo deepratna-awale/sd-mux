@@ -171,7 +171,7 @@ pytest                                            # offline: fake servers + synt
 python tests/live_check.py http://127.0.0.1:7860 --model hassakuSD15_v13 --lora some_lora --out /tmp/live
 ```
 
-See `docs/backends-setup.md` for the local UI installs used for live checks and `docs/verification.md` for what was
+See `docs/api-coverage.md` for every native route and auth method per backend, `docs/backends-setup.md` for the local UI installs used for live checks, and `docs/verification.md` for what was
 checked against which source.
 
 ## License
