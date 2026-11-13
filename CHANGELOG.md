@@ -5,6 +5,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-13
+
 ### Added
 - `sdmux.aio`: an asyncio client with the same methods. Cancelling an awaited generation interrupts it on the server.
 - `hires=` on `txt2img()` (a `Hires`, `True`, a scale or a dict) builds each backend's hires fix: latent, pixel or
@@ -41,5 +43,6 @@ First release.
   modelindex.dev and Hugging Face.
 - `sdmux` command line.
 
-[Unreleased]: https://github.com/deepratna-awale/sdmux/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/deepratna-awale/sdmux/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/deepratna-awale/sdmux/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/deepratna-awale/sdmux/releases/tag/v0.1.0
