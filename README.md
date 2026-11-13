@@ -181,7 +181,8 @@ cached by path, size and mtime; every answer is cached):
 | Hugging Face model card | `base_model` lineage and diffusers pipeline (architecture) for those repositories |
 
 Pick services with `identify(path, online=True, sources=("civitai", "civarchive"))`, `sdmux identify --sources ...`,
-or `SDMUX_LOOKUPS=civitai,huggingface`. Hugging Face, ModelScope, Tensor.Art, SeaArt and Shakker have no public
+or `SDMUX_LOOKUPS=civitai,huggingface`. "Not found" answers are cached for 7 days (`SDMUX_NEGATIVE_TTL`, in seconds), so models
+published later are picked up. Hugging Face, ModelScope, Tensor.Art, SeaArt and Shakker have no public
 by-hash search of their own, which is why the aggregators are used.
 
 ```bash

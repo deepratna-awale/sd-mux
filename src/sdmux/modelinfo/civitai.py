@@ -5,6 +5,7 @@ GET https://civitai.com/api/v1/model-versions/by-hash/{sha256} answers a model-v
 id, modelId, name, baseModel ("SD 1.5", "Pony", "Illustrious", ...), baseModelType, trainedWords,
 model {name, type, nsfw}, files[], air ("urn:air:sd1:checkpoint:civitai:<model>@<version>").
 An unknown hash answers 404. (Checked with a real call on 2026-11-11.)
+Not-found answers are cached for negative_ttl() seconds, so models published later are found.
 """
 
 from __future__ import annotations
@@ -13,8 +14,35 @@ import hashlib
 import json
 import os
 import threading
+import time
 
 _lock = threading.Lock()
+
+_MISSING = "_missing_at"
+NEGATIVE_TTL = 7 * 24 * 3600.0
+
+
+def negative_ttl() -> float:
+    """Seconds a cached "not found" answer is trusted: $SDMUX_NEGATIVE_TTL, else 7 days."""
+    try:
+        return float(os.environ.get("SDMUX_NEGATIVE_TTL", NEGATIVE_TTL))
+    except ValueError:
+        return NEGATIVE_TTL
+
+
+def _miss(value=None) -> dict:
+    return {_MISSING: time.time(), "value": value}
+
+
+def _cached_answer(entry) -> tuple[bool, object]:
+    """(usable, value) for a cache entry. Expired "not found" entries and pre-expiry empty ones are not usable."""
+    if isinstance(entry, dict) and _MISSING in entry:
+        if time.time() - entry[_MISSING] <= negative_ttl():
+            return True, entry.get("value")
+        return False, None
+    if not entry:
+        return False, None
+    return True, entry
 
 
 def cache_dir() -> str:
@@ -87,9 +115,9 @@ def civitai_lookup(sha256: str | None, api_key: str | None = None, timeout: floa
         return None
     sha256 = sha256.lower()
     with _lock:
-        cache = _read_cache("civitai.json")
-        if sha256 in cache:
-            return cache[sha256] or None
+        usable, value = _cached_answer(_read_cache("civitai.json").get(sha256))
+        if usable:
+            return value or None
     import requests
 
     from .. import __version__
@@ -118,6 +146,6 @@ def civitai_lookup(sha256: str | None, api_key: str | None = None, timeout: floa
         break
     with _lock:
         cache = _read_cache("civitai.json")
-        cache[sha256] = record
+        cache[sha256] = record or _miss()
         _write_cache("civitai.json", cache)
     return record or None
