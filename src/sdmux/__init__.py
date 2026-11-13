@@ -12,7 +12,7 @@ sdmux: one client for every local image generation backend, with checkpoint iden
     info.architecture, info.family, info.profile
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from .comfygraph import Graph, GraphError, NodeSpec  # noqa: E402
 from .errors import AuthRefused, Cancelled, NotReady, Rejected, SdmuxError, TimedOut, Unreachable, Unsupported  # noqa: E402
