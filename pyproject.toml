@@ -26,7 +26,7 @@ test = ["pytest>=7"]
 sdmux = "sdmux.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/deepratna-awale/sd-mux"
+Homepage = "https://github.com/deepratna-awale/sdmux"
 
 [tool.setuptools.packages.find]
 where = ["src"]
