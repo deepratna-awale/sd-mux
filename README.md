@@ -13,8 +13,10 @@ One Python client for every local image generation backend, with checkpoint iden
 Dependencies: `requests` and `pillow`. `websocket-client` (the `progress` extra) adds ComfyUI step progress.
 
 ```bash
-pip install -e .              # or: pip install -e ".[progress]"
+pip install sdmux             # or: pip install "sdmux[progress]"
 ```
+
+To work on sdmux itself, see [Development](#development). Release notes are in [CHANGELOG.md](CHANGELOG.md).
 
 ## Quickstart
 
@@ -248,6 +250,10 @@ python tests/live_check.py http://127.0.0.1:7860 --model hassakuSD15_v13 --lora 
 
 See `docs/api-coverage.md` for every native route and auth method per backend, `docs/backends-setup.md` for the local UI installs used for live checks, and `docs/verification.md` for what was
 checked against which source.
+
+Releasing: move the `Unreleased` notes in `CHANGELOG.md` under the new version, bump `version` in `pyproject.toml` and
+`__version__` in `src/sdmux/__init__.py`, then publish a GitHub release tagged `vX.Y.Z`. The release workflow tests,
+builds and uploads to PyPI.
 
 ## License
 
