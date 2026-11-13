@@ -119,7 +119,7 @@ def _gguf(path: str, size: int) -> Header:
         for _ in range(n_kv):
             key = string()
             metadata[key] = value(read("<I"))
-        tensors = {}
+        tensors: dict[str, tuple[int, ...] | None] = {}
         for _ in range(n_tensors):
             name = string()
             dims = [read("<Q") for _ in range(read("<I"))]
@@ -139,8 +139,10 @@ class _Global:
 
 
 class _Call:
-    def __init__(self, func, args):
+    def __init__(self, func, args) -> None:
         self.func, self.args = func, args
+        self.state: dict | None = None
+        self.items: dict = {}
 
 
 class _Mark:
@@ -160,7 +162,7 @@ def _tensor_shape(obj):
     return None
 
 
-def _walk_pickle(data: bytes) -> dict:
+def _walk_pickle(data: bytes) -> object:
     """Run a pickle's opcodes on a data-only stack. GLOBAL never imports; REDUCE never calls."""
     stack: list = []
     memo: dict = {}
@@ -242,7 +244,7 @@ def _walk_pickle(data: bytes) -> dict:
                     if _hashable(items[i]):
                         target[items[i]] = items[i + 1]
             elif isinstance(target, _Call):  # OrderedDict() filled by SETITEMS
-                state = getattr(target, "items", {})
+                state = target.items
                 for i in range(0, len(items) - 1, 2):
                     if _hashable(items[i]):
                         state[items[i]] = items[i + 1]
@@ -329,7 +331,7 @@ def _ckpt_legacy(path: str, size: int) -> Header:
         end = None
         try:
             for op, _arg, pos in pickletools.genops(data[offset:]):
-                if op.name == "STOP":
+                if op.name == "STOP" and pos is not None:
                     end = offset + pos + 1
                     break
         except ValueError as e:

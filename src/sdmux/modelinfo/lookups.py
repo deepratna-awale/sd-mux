@@ -176,7 +176,8 @@ def lookup_modelindex(sha256: str, timeout: float = 15.0) -> Lookup:
     matches = (body or {}).get("matches") or []
     if not matches:
         return Lookup("modelindex", False)
-    links, facts = [], []
+    links: list[Link] = []
+    facts: list[fam.Fact] = []
     for m in matches:
         service = {"hf": "huggingface"}.get(m.get("source"), m.get("source") or "unknown")
         repo = f"{m.get('org')}/{m.get('name')}"

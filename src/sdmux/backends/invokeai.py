@@ -123,7 +123,7 @@ class InvokeAI(Backend):
     def _model(m: dict, kind: str) -> Model:
         return Model(name=m["name"], title=m.get("description") or None, path=m.get("path"), hash=m.get("hash"),
                      sha256=(m.get("hash") or "").split(":", 1)[-1] if str(m.get("hash", "")).startswith("sha256:") else None,
-                     kind=kind, architecture=BASE_ARCHITECTURE.get(m.get("base")), raw=m)
+                     kind=kind, architecture=BASE_ARCHITECTURE.get(m.get("base") or ""), raw=m)
 
     def models(self) -> list[Model]:
         """Main models. Every base is listed; generation covers sd-1, sd-2 and sdxl."""
@@ -182,7 +182,7 @@ class InvokeAI(Backend):
                 clip_source = node("clip_skip", "clip_skip", skipped_layers=int(request.clip_skip) - 1)
                 edge(loader, "clip", clip_source, "clip")
 
-        selected = []
+        selected: list[str] = []
         for lora, weight in loras:
             if lora.raw.get("base") != raw["base"]:
                 raise Rejected(f"LoRA {lora.name} is for {lora.raw.get('base')}, the model is {raw['base']}.", backend=self.kind)
@@ -200,7 +200,7 @@ class InvokeAI(Backend):
                 clip2_source = lora_loader
             unet_source, clip_source = lora_loader, lora_loader
 
-        width, height = int(request.width) // 8 * 8, int(request.height) // 8 * 8
+        width, height = request.size(8)
         for prompt_id, text in (("positive", prompt), ("negative", request.negative)):
             if sdxl:
                 node(prompt_id, "sdxl_compel_prompt", prompt=text, style=text, original_width=width, original_height=height,
@@ -291,17 +291,17 @@ class InvokeAI(Backend):
 
     def _generate(self, request: Request) -> Result:
         request.seed = request.resolved_seed() % (2**31)  # InvokeAI noise seeds are 32-bit signed
-        width, height = int(request.width) // 8 * 8, int(request.height) // 8 * 8
+        width, height = request.size(8)
         image_name = mask_name = None
         work = None
         if request.image is not None:
             work = request.image.convert("RGB")
             if work.size != (width, height):
-                work = work.resize((width, height), Image.LANCZOS)
+                work = work.resize((width, height), Image.Resampling.LANCZOS)
             image_name = self.upload(work)
         if request.mask is not None:
             # create_gradient_mask repaints black and keeps white (checked in InvokeAI's source), so invert ours.
-            mask = request.mask.convert("L").resize((width, height), Image.NEAREST)
+            mask = request.mask.convert("L").resize((width, height), Image.Resampling.NEAREST)
             mask_name = self.upload(ImageOps.invert(mask), "mask")
         images, seeds = [], []
         with self._job():  # one job for the whole batch, so an interrupt between images is not lost
@@ -318,7 +318,7 @@ class InvokeAI(Backend):
                 image = self.fetch(item)
                 if request.mode == INPAINT and work is not None:
                     # Keep pixels outside the mask exactly as they were.
-                    keep = request.mask.convert("L").resize(image.size, Image.NEAREST)
+                    keep = request.mask.convert("L").resize(image.size, Image.Resampling.NEAREST)
                     image = Image.composite(image.convert("RGB"), work.resize(image.size), keep)
                 text = infotext(request, seed=seed, size=image.size, sampler=request.sampler, scheduler=request.scheduler,
                                 model=self.resolve_model(request.model).name, version="InvokeAI")

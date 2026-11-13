@@ -153,7 +153,7 @@ class SwarmUI(Backend):
     def info(self) -> dict:
         if not self._server:
             self._new_session()
-        status = {}
+        status: dict = {}
         try:
             status = self.call("GetCurrentStatus").get("backend_status") or {}
         except Rejected:

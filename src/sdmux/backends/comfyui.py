@@ -18,6 +18,7 @@ import posixpath
 import threading
 import time
 import uuid
+from typing import Any
 
 from PIL import Image
 
@@ -53,7 +54,7 @@ def input_default(spec):
 
 # Split-file loaders per architecture: which CLIP loader and type, which text encoders to look for.
 # Used when the model is listed by UNETLoader (models/diffusion_models) rather than CheckpointLoaderSimple.
-SPLIT_FILE = {
+SPLIT_FILE: dict[str, dict[str, Any]] = {
     "flux": {"clip": ("DualCLIPLoader", "flux", ("clip_l", "t5xxl")), "vae": ("ae", "flux"), "guidance": 3.5, "cfg": 1.0},
     "flux2": {"clip": ("CLIPLoader", "flux2", ("mistral", "qwen")), "vae": ("flux2",), "guidance": 4.0, "cfg": 1.0},
     "chroma": {"clip": ("CLIPLoader", "chroma", ("t5xxl",)), "vae": ("ae", "flux"), "guidance": None, "cfg": 4.0},
@@ -257,7 +258,7 @@ class ComfyUI(Backend):
                     return choice
         raise NotReady(f"ComfyUI has no {what} ({' or '.join(hints)}) for {node}.{field}.", backend=self.kind)
 
-    def _loaders(self, workflow: dict, request: Request, model: Model) -> tuple[list, list, list, dict]:
+    def _loaders(self, workflow: dict, request: Request, model: Model) -> tuple[list, list, list, dict[str, Any]]:
         """Add the model loaders; returns (model, clip, vae) links and sampling hints."""
         if model.kind == "checkpoint":
             workflow["ckpt"] = self._node("CheckpointLoaderSimple", {"ckpt_name": model.name})
@@ -324,7 +325,7 @@ class ComfyUI(Backend):
             workflow["guidance"] = self._node("FluxGuidance", {"conditioning": positive, "guidance": hints["guidance"]})
             positive = ["guidance", 0]
 
-        width, height = int(request.width), int(request.height)
+        width, height = request.size()
         if request.mode == TXT2IMG:
             latent_node = "EmptySD3LatentImage" if model.kind != "checkpoint" and self.object_info("EmptySD3LatentImage") else "EmptyLatentImage"
             workflow["latent"] = self._node(latent_node, {"width": width, "height": height, "batch_size": request.batch_size})
@@ -450,11 +451,11 @@ class ComfyUI(Backend):
     def fetch(self, entry: dict, node: str | None = None) -> list[Image.Image]:
         """Download the images a history entry lists, for one output node or all of them."""
         outputs = entry.get("outputs") or {}
-        items = []
+        items: list[dict] = []
         for node_id, out in outputs.items():
             if node is None or node_id == node:
                 items.extend(out.get("images") or [])
-        images = []
+        images: list[Image.Image] = []
         for item in items:
             response = self._view({"filename": item["filename"], "subfolder": item.get("subfolder", ""),
                                    "type": item.get("type", "output")})

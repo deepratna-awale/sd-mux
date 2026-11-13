@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass, field
 from functools import lru_cache
+from typing import Any
 from importlib import resources
 
 DIALECTS = ("pony", "danbooru", "e621", "clip", "natural")
@@ -40,7 +41,7 @@ class Profile:
     @property
     def defaults(self) -> dict:
         """Keyword arguments for txt2img(): width, height, steps, cfg, sampler, scheduler, clip_skip."""
-        out = {"width": self.width, "height": self.height, "steps": self.steps, "cfg": self.cfg, "clip_skip": self.clip_skip}
+        out: dict[str, Any] = {"width": self.width, "height": self.height, "steps": self.steps, "cfg": self.cfg, "clip_skip": self.clip_skip}
         if self.sampler:
             out["sampler"] = self.sampler
         if self.scheduler and self.scheduler.lower() != "automatic":

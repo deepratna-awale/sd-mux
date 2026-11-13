@@ -170,7 +170,7 @@ class Transport:
         self.session = self._new_session()
         self.apply_auth()
 
-    def _new_session(self) -> requests.Session:
+    def _new_session(self) -> _AuthSession:
         retries = self.options.retries
         retry = Retry(
             total=retries,
@@ -204,13 +204,13 @@ class Transport:
 
     def auth_headers(self) -> dict[str, str]:
         """The headers carrying this connection's login, for connections the session does not make (websockets)."""
-        headers = {}
+        headers: dict[str, str] = {}
         auth = self.session.auth
         if isinstance(auth, tuple) and auth[0]:
             headers["Authorization"] = "Basic " + base64.b64encode(f"{auth[0]}:{auth[1] or ''}".encode()).decode()
         for name, value in self.session.headers.items():
             if name.lower() == "authorization" or name in self.session.secret_headers:
-                headers[name] = value
+                headers[name] = value if isinstance(value, str) else value.decode()
         cookies = "; ".join(f"{c.name}={c.value}" for c in self.session.cookies)
         if cookies:
             headers["Cookie"] = cookies

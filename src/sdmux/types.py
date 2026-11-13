@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import base64
 import io
+import os
 import random
 from dataclasses import dataclass, field
 from typing import Any, Union
 
 from PIL import Image
 
-ImageInput = Union[Image.Image, bytes, str, "os.PathLike[str]"]  # noqa: F821
+ImageInput = Union[Image.Image, bytes, str, "os.PathLike[str]"]
 
 TXT2IMG, IMG2IMG, INPAINT = "txt2img", "img2img", "inpaint"
 
@@ -96,6 +97,12 @@ class Request:
 
     def resolved_seed(self) -> int:
         return self.seed if self.seed is not None and self.seed >= 0 else random_seed()
+
+    def size(self, multiple: int = 1) -> tuple[int, int]:
+        """(width, height) rounded down to a multiple; both are set once defaults have been filled."""
+        if self.width is None or self.height is None:
+            raise ValueError("width and height are not set.")
+        return int(self.width) // multiple * multiple, int(self.height) // multiple * multiple
 
 
 @dataclass

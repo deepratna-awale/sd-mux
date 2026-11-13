@@ -117,7 +117,7 @@ def civitai_lookup(sha256: str | None, api_key: str | None = None, timeout: floa
     with _lock:
         usable, value = _cached_answer(_read_cache("civitai.json").get(sha256))
         if usable:
-            return value or None
+            return value if isinstance(value, dict) and value else None
     import requests
 
     from .. import __version__
