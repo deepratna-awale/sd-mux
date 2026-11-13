@@ -321,6 +321,9 @@ def test_comfy_interrupt_and_timeout():
         sd2 = ComfyUI(s.url, poll_interval=0.05, job_timeout=0.3)
         with pytest.raises(sdmux.TimedOut):
             sd2.txt2img("x")
+        # The timed-out job is interrupted on the server, not left running.
+        assert s.last("POST", "/interrupt").json == {"prompt_id": "p2"}
+        assert s.state["history"]["p2"]["status"]["messages"][0][0] == "execution_interrupted"
 
 
 # SwarmUI ---------------------------------------------------------------------------

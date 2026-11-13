@@ -21,7 +21,7 @@ import uuid
 
 from PIL import Image
 
-from ..errors import Cancelled, NotReady, Rejected, TimedOut, Unsupported
+from ..errors import Cancelled, NotReady, Rejected, SdmuxError, TimedOut, Unsupported
 from ..names import canonical_scheduler, pick_native, sampler_id
 from ..types import IMG2IMG, INPAINT, TXT2IMG, Model, Progress, Request, Result, infotext, to_png_bytes
 from .base import Backend
@@ -430,8 +430,22 @@ class ComfyUI(Backend):
             if self._cancel.is_set():
                 raise Cancelled("Interrupted.", backend=self.kind)
             time.sleep(self.options.poll_interval)
+        try:
+            self.cancel(prompt_id)
+        except SdmuxError:
+            pass
         raise TimedOut(f"ComfyUI job {prompt_id} did not finish within {timeout or self.options.job_timeout:.0f}s.",
                        backend=self.kind)
+
+    def cancel(self, prompt_id: str) -> None:
+        """Drop prompt_id from the queue if it is pending, interrupt it if it is running; leave other jobs alone."""
+        queue = self.http.get_json("/queue", timeout=10)
+        running = {item[1] for item in queue.get("queue_running") or [] if len(item) > 1}
+        pending = {item[1] for item in queue.get("queue_pending") or [] if len(item) > 1}
+        if prompt_id in pending:
+            self.http.check(self.http.request("POST", "/queue", json={"delete": [prompt_id]}, timeout=10), "queue delete")
+        if prompt_id in running:
+            self.http.check(self.http.request("POST", "/interrupt", json={"prompt_id": prompt_id}, timeout=10), "interrupt")
 
     def fetch(self, entry: dict, node: str | None = None) -> list[Image.Image]:
         """Download the images a history entry lists, for one output node or all of them."""
