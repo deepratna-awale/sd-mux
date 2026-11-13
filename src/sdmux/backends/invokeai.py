@@ -233,9 +233,29 @@ class InvokeAI(Backend):
             edge(unet_source, "unet", mask, "unet")
             edge(mask, "denoise_mask", denoise, "denoise_mask")
 
+        final = denoise
+        if request.hires is not None:
+            hires = request.hires
+            if not hires.latent_method:
+                raise Unsupported("sdmux builds InvokeAI's hires fix as a latent upscale only; use upscaler=None or "
+                                  "'Latent ...', or enqueue_graph() with your own graph.", backend=self.kind)
+            hires_width, hires_height = hires.size(width, height)
+            mode = hires.latent_method if hires.latent_method in ("nearest-exact", "bilinear", "bicubic", "area") else "bilinear"
+            resize = node("hires_resize", "lresize", width=hires_width, height=hires_height, mode=mode, antialias=False)
+            edge(denoise, "latents", resize, "latents")
+            hires_noise = node("hires_noise", "noise", seed=request.seed, width=hires_width, height=hires_height, use_cpu=True)
+            final = node("hires_denoise", "denoise_latents", steps=hires.steps or request.steps, cfg_scale=request.cfg,
+                         scheduler=scheduler_name(request.sampler, request.scheduler),
+                         denoising_start=round(1 - min(max(float(hires.denoise), 0.0), 1.0), 4), denoising_end=1.0)
+            edge(unet_source, "unet", final, "unet")
+            edge("positive", "conditioning", final, "positive_conditioning")
+            edge("negative", "conditioning", final, "negative_conditioning")
+            edge(hires_noise, "noise", final, "noise")
+            edge(resize, "latents", final, "latents")
+
         output = node("output", "l2i")
         nodes[output]["is_intermediate"] = False
-        edge(denoise, "latents", output, "latents")
+        edge(final, "latents", output, "latents")
         edge(loader, "vae", output, "vae")
         return {"id": "sdmux", "nodes": nodes, "edges": edges}
 

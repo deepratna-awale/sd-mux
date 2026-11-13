@@ -6,6 +6,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `hires=` on `txt2img()` (a `Hires`, `True`, a scale or a dict) builds each backend's hires fix: latent, pixel or
+  upscale-model upscaling followed by a second denoise pass.
+- `upscalers()` and `upscale(image, upscaler, scale)` on A1111, Forge, SD.Next and ComfyUI.
 - Draw Things (HTTP API server) and stable-diffusion.cpp's `sd-server` backends, detected by `sdmux.connect()`.
 - `ComfyUI.cancel(prompt_id)` removes a pending prompt or interrupts a running one, leaving other clients' jobs alone.
 - `SDMUX_NEGATIVE_TTL` sets how long a "not found" online lookup is trusted (default 7 days).

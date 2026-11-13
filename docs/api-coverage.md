@@ -33,6 +33,9 @@ A refused login raises `AuthRefused`. Credentials are never shown in error messa
 | `POST /sdapi/v1/img2img` | `img2img()`, `inpaint()` | inpaint: `mask`, `mask_blur`, `inpainting_fill=1`, `inpaint_full_res`, `inpaint_full_res_padding`, `inpainting_mask_invert=0` | Live | Live | Live | Live |
 | `GET /sdapi/v1/progress?skip_current_image=true` | `progress()` | step, steps, eta | Live | Live | Live | Live |
 | `POST /sdapi/v1/interrupt` | `interrupt()` | partial image -> `Cancelled` | Live | Live | Live | Live |
+| `POST /sdapi/v1/txt2img` with `enable_hr`, `hr_scale`, `hr_upscaler`, `hr_second_pass_steps`, `denoising_strength` | `hires=` | | Mock | Mock | Mock | Mock |
+| `GET /sdapi/v1/upscalers` | `upscalers()`, matching `hires.upscaler` | | Mock | Mock | Mock | Mock |
+| `POST /sdapi/v1/extra-single-image` | `upscale()` | | Mock | Mock | Mock | Mock |
 | any `/sdapi/v1/*` | `sd.api(path, payload, method)` | escape hatch | - | - | - | - |
 
 ## ComfyUI
@@ -59,7 +62,9 @@ reported every problem); running such graphs is covered by the fake-server tests
 Built-in graph nodes: `CheckpointLoaderSimple`, `LoraLoader`, `CLIPSetLastLayer`, `CLIPTextEncode`, `EmptyLatentImage`, `LoadImage`,
 `ImageScale`, `VAEEncode`, `LoadImageMask`, `SetLatentNoiseMask`, `RepeatLatentBatch`, `KSampler`, `VAEDecode`,
 `ImageCompositeMasked`, `PreviewImage` (all Live). Split-file models add `UNETLoader`, `DualCLIPLoader` / `CLIPLoader` /
-`TripleCLIPLoader`, `VAELoader`, `FluxGuidance`, `EmptySD3LatentImage`, `LoraLoaderModelOnly` (Mock).
+`TripleCLIPLoader`, `VAELoader`, `FluxGuidance`, `EmptySD3LatentImage`, `LoraLoaderModelOnly` (Mock). `hires=` adds
+`LatentUpscale`, or `VAEDecode` + `UpscaleModelLoader` + `ImageUpscaleWithModel` + `ImageScale` + `VAEEncode`, and a second
+`KSampler`; `upscale()` runs `LoadImage` + `UpscaleModelLoader` + `ImageUpscaleWithModel` + `ImageScale` (Mock).
 
 ## SwarmUI (`POST /API/<Route>`)
 
@@ -71,6 +76,7 @@ Built-in graph nodes: `CheckpointLoaderSimple`, `LoraLoader`, `CLIPSetLastLayer`
 | `ListT2IParams` | `samplers()`, `schedulers()` | `id///Display Name` values | Live |
 | `GenerateText2Image` | `txt2img()`, `img2img()` (`initimage`, `initimagecreativity`), `inpaint()` (`maskimage`, `maskblur`) | LoRAs stay in the prompt; `donotsave`; seed resolved client-side | Live |
 | `GetCurrentStatus` | `info()`, `ready()`, `progress()` (activity), `features()` | `supported_features` decides whether mask blur can be sent | Live |
+| `GenerateText2Image` with `refinercontrolpercentage`, `refinerupscale`, `refinerupscalemethod`, `refinermethod=PostApply`, `refinersteps` | `hires=` | the base model refines; `refinersteps` = hires steps / denoise, since SwarmUI runs that fraction of them | Mock |
 | `InterruptAll` | `interrupt()` | this session only | Live |
 | any route | `sd.call(route, body)` | escape hatch | - |
 
@@ -89,6 +95,8 @@ Not used: `GenerateText2ImageWS` (step progress), model downloads and editing.
 | `GET /api/v1/images/i/{name}/full` | fetching the output image | | Live |
 | `GET /api/v1/queue/default/status` | `progress()` (activity) | | Live |
 | `PUT /api/v1/queue/default/i/{id}/cancel` | `interrupt()` | | Live |
+
+`hires=` adds `lresize`, a second `noise` and a second `denoise_latents` (latent upscale only; Mock).
 
 Graph nodes: `main_model_loader`, `clip_skip`, `lora_selector` + `collect` + `lora_collection_loader`, `compel`, `noise`,
 `denoise_latents`, `i2l`, `create_gradient_mask`, `l2i` (Live, SD 1.5); `sdxl_model_loader`, `sdxl_compel_prompt`,

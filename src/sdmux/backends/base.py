@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 from ..errors import AuthRefused, NotReady, Rejected, SdmuxError, TimedOut, Unreachable
 from ..names import canonical_scheduler, extract_loras, lora_stem, match_choice
 from ..transport import Options, Transport
-from ..types import IMG2IMG, INPAINT, TXT2IMG, Model, Progress, Request, Result, load_image
+from ..types import IMG2IMG, INPAINT, TXT2IMG, Hires, Model, Progress, Request, Result, load_image
 
 if TYPE_CHECKING:
     from ..modelinfo import ModelInfo, Profile
@@ -190,6 +190,12 @@ class Backend:
             raise Unsupported(f"patch= edits a ComfyUI graph; {self.label} has none.", backend=self.kind)
         if request.batch_size < 1:
             raise ValueError("batch_size must be at least 1.")
+        request.hires = Hires.coerce(request.hires)
+        if request.hires is not None:
+            if request.mode != TXT2IMG:
+                raise ValueError("hires= applies to txt2img; img2img and inpaint already start from an image.")
+            if request.hires.scale < 1:
+                raise ValueError("hires.scale must be at least 1.")
         return request
 
     @contextmanager
@@ -199,6 +205,17 @@ class Backend:
         with self._lock:
             self._cancel.clear()
             yield
+
+    # Upscaling ------------------------------------------------------------
+    def upscalers(self) -> list[str]:
+        """Upscaler names upscale() and hires=Hires(upscaler=...) accept, where the backend lists them."""
+        return []
+
+    def upscale(self, image, upscaler: str | None = None, scale: float = 2.0) -> Result:
+        """Upscale an image with no diffusion pass."""
+        from ..errors import Unsupported
+
+        raise Unsupported(f"{self.label} has no standalone upscale route sdmux can use.", backend=self.kind)
 
     # Control --------------------------------------------------------------
     def progress(self) -> Progress:

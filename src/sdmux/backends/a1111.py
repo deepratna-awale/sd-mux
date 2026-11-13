@@ -12,7 +12,7 @@ import json
 from typing import Any
 
 from ..errors import AuthRefused, Cancelled, Rejected, SdmuxError, TimedOut, Unreachable
-from ..names import canonical_scheduler, extract_loras, lora_tags, pick_native, sampler_id
+from ..names import canonical_scheduler, extract_loras, find_choice, lora_tags, pick_native, sampler_id
 from ..types import IMG2IMG, INPAINT, TXT2IMG, Model, Progress, Request, Result, load_image, to_b64
 from .base import Backend
 
@@ -181,8 +181,44 @@ class A1111(Backend):
                     "inpainting_mask_invert": 0,  # white = repaint
                 }
             )
+        if request.hires is not None:
+            payload.update(self._hires_fields(request.hires))
         payload.update(request.extra or {})
         return payload
+
+    def _hires_fields(self, hires) -> dict:
+        return {
+            "enable_hr": True,
+            "hr_scale": hires.scale,
+            "hr_upscaler": self._upscaler_name(hires.upscaler, latent_ok=True) if hires.upscaler else "Latent",
+            "hr_second_pass_steps": hires.steps or 0,
+            "denoising_strength": hires.denoise,
+        }
+
+    def _upscaler_name(self, wanted: str, latent_ok: bool = False) -> str:
+        """The server's name for an upscaler, matched loosely; latent modes pass through for hires fix."""
+        if latent_ok and wanted.strip().lower().startswith("latent"):
+            return wanted
+        names = self.upscalers()
+        found = find_choice(wanted, names)
+        if found:
+            return found
+        raise Rejected(f"{self.label} has no upscaler matching {wanted!r}. It lists: {', '.join(names)}", backend=self.kind)
+
+    # Upscaling ------------------------------------------------------------
+    def upscalers(self) -> list[str]:
+        return [u["name"] for u in self.http.get_json("/sdapi/v1/upscalers") if u.get("name") and u["name"] != "None"]
+
+    def upscale(self, image, upscaler: str | None = None, scale: float = 2.0) -> Result:
+        """Upscale through /sdapi/v1/extra-single-image (the Extras tab). upscaler defaults to Lanczos."""
+        source = load_image(image).convert("RGB")
+        name = self._upscaler_name(upscaler or "Lanczos")
+        body = {"image": to_b64(source), "resize_mode": 0, "upscaling_resize": scale, "upscaler_1": name}
+        answer = self.http.post_json("/sdapi/v1/extra-single-image", body, timeout=self.options.job_timeout)
+        if not answer.get("image"):
+            raise Rejected(f"{self.label} returned no upscaled image.", backend=self.kind, details=answer)
+        result = load_image(answer["image"])
+        return Result(images=[result], backend=self.kind, raw={"upscaler": name, "scale": scale})
 
     def _generate(self, request: Request) -> Result:
         payload = self.build_payload(request)

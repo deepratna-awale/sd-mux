@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import io
 import json
+import math
 
 from PIL import Image
 
@@ -212,8 +213,26 @@ class SwarmUI(Backend):
                 body["maskblur"] = request.mask_blur
             if request.inpaint_full_res:
                 body["maskshrinkgrow"] = request.inpaint_padding
+        if request.hires is not None:
+            body.update(self._hires_params(request.hires))
         body.update(request.extra or {})
         return body
+
+    @staticmethod
+    def _hires_params(hires) -> dict:
+        """SwarmUI's Refine / Upscale group with the base model: upscale, then refine for hires.steps steps."""
+        if hires.latent_method:
+            method = f"latent-{hires.latent_method}"
+        elif hires.pixel_method:
+            method = f"pixel-{hires.pixel_method}"
+        else:
+            method = f"model-{hires.upscaler}"
+        params = {"refinercontrolpercentage": hires.denoise, "refinerupscale": hires.scale, "refinermethod": "PostApply",
+                  "refinerupscalemethod": method}
+        if hires.steps:
+            # SwarmUI runs refinersteps x control percentage steps in the refiner stage.
+            params["refinersteps"] = max(1, math.ceil(hires.steps / max(hires.denoise, 0.01)))
+        return params
 
     def _image(self, ref: str) -> Image.Image:
         if ref.startswith("data:"):

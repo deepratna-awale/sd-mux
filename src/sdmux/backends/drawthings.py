@@ -149,6 +149,12 @@ class DrawThings(Backend):
             body["sampler"] = sampler
         if request.mode != TXT2IMG:
             body["strength"] = request.denoise
+        if request.hires is not None:
+            # Draw Things' width/height is the final size; hires_fix_width/height is the first pass.
+            if not request.hires.latent_method:
+                raise Unsupported("Draw Things' hires fix upscales latents only; use upscaler=None.", backend=self.kind)
+            body["width"], body["height"] = request.hires.size(width, height, 64)
+            body.update(hires_fix=True, hires_fix_width=width, hires_fix_height=height, hires_fix_strength=request.hires.denoise)
         body = {k: v for k, v in body.items() if v is not None and (k in settings or not settings)}
         if request.image is not None and request.mode != TXT2IMG:
             image = load_image(request.image).convert("RGB")
