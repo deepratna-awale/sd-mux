@@ -2,7 +2,8 @@
 
 One Python client for every local image generation backend, with checkpoint identification built in.
 
-- **One API** over AUTOMATIC1111, Forge / reForge, SD.Next, ComfyUI, SwarmUI and InvokeAI 5+.
+- **One API** over AUTOMATIC1111, Forge / reForge, SD.Next, ComfyUI, SwarmUI, InvokeAI 5+, Draw Things and
+  stable-diffusion.cpp's server.
 - **One vocabulary in, native vocabulary out.** A1111 sampler and scheduler names (or each backend's own),
   `<lora:name:weight>` in the prompt everywhere, loose model and LoRA names.
 - **Typed errors.** Generation raises; it never returns `None`.
@@ -145,6 +146,8 @@ g = sd.workflow(prompt="1girl", model="waiIllustrious")   # a Graph; g.to_api() 
 | ComfyUI | `sd.graph()` + `sd.run()` for any node; `sd.run_workflow(api_format_dict)`; also `upload()`, `queue()`, `wait()`, `cancel()`, `fetch()`, `object_info()` |
 | SwarmUI | `sd.call("Route", body)` with a live session; `extra=` merges into `GenerateText2Image` |
 | InvokeAI | `sd.enqueue_graph(graph)`, `sd.wait(item_id)`, `sd.fetch(item)`, `sd.upload(image)` |
+| Draw Things | `sd.settings()` lists every setting the app takes; `extra=` merges any of them (`{"shift": 3}`) into the request |
+| stable-diffusion.cpp | `sd.api(...)` like A1111; `extra=` merges into the payload (`sd_cpp_extra_args`, `alwayson_scripts`, ...) |
 
 ## Checkpoint identification
 
@@ -236,6 +239,11 @@ Not built (room is left in `Request.extra`): hires-fix, refiner passes, ControlN
   and composites the original back outside the mask. `/view` downloads are retried when a proxy drops them.
 - **SwarmUI**: LoRAs stay in the prompt. With `donotsave` the image carries no seed, so sdmux resolves the seed itself.
   Mask blur needs SwarmUI's own ComfyUI nodes; on a ComfyUI backend without them it is skipped.
+- **Draw Things**: turn on Settings > API Server (HTTP). Only the selected model and LoRAs can be listed; `model=` and
+  LoRA names are passed to the app, which checks them. Sizes are rounded down to multiples of 64. There is no progress,
+  interrupt or inpaint over HTTP. Mock-only: covered by fake-server tests written from the app's open-source server code.
+- **stable-diffusion.cpp** (`sd-server`): one model is loaded at a time, so `model=` must name it. LoRA tags become the
+  server's `lora` list. No interrupt. Mock-only, written from the server's source and `api.md`.
 - **InvokeAI**: the mask is inverted for `create_gradient_mask` (which repaints black), and the original pixels are
   composited back outside the mask.
 

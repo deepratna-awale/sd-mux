@@ -94,6 +94,36 @@ Graph nodes: `main_model_loader`, `clip_skip`, `lora_selector` + `collect` + `lo
 `denoise_latents`, `i2l`, `create_gradient_mask`, `l2i` (Live, SD 1.5); `sdxl_model_loader`, `sdxl_compel_prompt`,
 `sdxl_lora_collection_loader` (Mock).
 
+## stable-diffusion.cpp server (`sd-server`)
+
+Detected by `GET /sdcpp/v1/capabilities` after `/sdapi/v1/samplers` answers. Source checked: `examples/server/routes_sdapi.cpp`
+and `api.md` in leejet/stable-diffusion.cpp.
+
+| Route | Used by | Notes | Verified |
+|---|---|---|---|
+| `GET /sdcpp/v1/capabilities` | detection, `info()` | | Mock |
+| `GET /sdapi/v1/sd-models`, `/options` | `models()`, `current_model()` | lists only the loaded model; another `model=` raises `Rejected` | Mock |
+| `GET /sdapi/v1/loras`, `/samplers`, `/schedulers` | listings | | Mock |
+| `POST /sdapi/v1/txt2img`, `/img2img` | generation | LoRAs go in `lora: [{path, multiplier}]` (prompt tags are not read); `clip_skip` top-level | Mock |
+| `GET /sdapi/v1/progress` | `progress()` | | Mock |
+
+No interrupt route: `interrupt()` raises `Unsupported`. `vae=` raises `Unsupported` (the VAE is fixed when the model loads).
+
+## Draw Things (HTTP API server)
+
+Turned on in the app (Settings > API Server, HTTP). Source checked: `Libraries/HTTPAPIServer` in
+drawthingsai/draw-things-community.
+
+| Route | Used by | Notes | Verified |
+|---|---|---|---|
+| `GET /sdapi/v1/options` (same as `GET /`) | detection, `models()`, `loras()`, `info()` | the app's current settings; only the selected model and LoRAs | Mock |
+| `POST /sdapi/v1/txt2img` | `txt2img()` | app keys: `guidance_scale`, `sampler`, `model`, `loras [{file, weight}]`, `clip_skip`, ...; unknown keys fail with 422, so only keys the settings list are sent | Mock |
+| `POST /sdapi/v1/img2img` | `img2img()` | one `init_images` entry, resized to width x height (multiples of 64); `strength` = denoise | Mock |
+
+No progress, interrupt or mask over HTTP: `progress()` reports nothing, `interrupt()` and `inpaint()` raise `Unsupported`.
+Model and LoRA names are passed through for the app to check. A1111 samplers map to Draw Things' combined names
+(`DPM++ 2M` + `Karras` -> `DPM++ 2M Karras`, `+ Align Your Steps` -> `... AYS`, `+ SGM Uniform` -> `... Trailing`).
+
 ## Model lookups (`identify(online=True)`)
 
 | Route | Gives | Verified |

@@ -6,6 +6,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- Draw Things (HTTP API server) and stable-diffusion.cpp's `sd-server` backends, detected by `sdmux.connect()`.
 - `ComfyUI.cancel(prompt_id)` removes a pending prompt or interrupts a running one, leaving other clients' jobs alone.
 - `SDMUX_NEGATIVE_TTL` sets how long a "not found" online lookup is trusted (default 7 days).
 - The wheel ships `py.typed`, so type checkers use sdmux's annotations.

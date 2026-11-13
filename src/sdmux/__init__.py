@@ -3,7 +3,7 @@ sdmux: one client for every local image generation backend, with checkpoint iden
 
     import sdmux
 
-    sd = sdmux.connect("http://127.0.0.1:8188")     # detects ComfyUI, A1111, Forge, SD.Next, SwarmUI or InvokeAI
+    sd = sdmux.connect("http://127.0.0.1:8188")     # detects ComfyUI, A1111, Forge, SD.Next, SwarmUI, InvokeAI, ...
     r = sd.txt2img("1girl, smile <lora:detail:0.6>", model="waiIllustrious", steps=28, cfg=6,
                    sampler="Euler a", scheduler="Karras", seed=42, clip_skip=2)
     r.image.save("out.png")
@@ -25,7 +25,7 @@ def connect(url: str, kind: str | None = None, options: Options | None = None, d
     """
     Connect to the backend at url and return its client.
 
-    kind skips detection ("a1111", "forge", "reforge", "sdnext", "comfyui", "swarmui", "invokeai").
+    kind skips detection ("a1111", "forge", "reforge", "sdnext", "comfyui", "swarmui", "invokeai", "drawthings", "sdcpp").
     Connection options: username, password, token, headers, connect_timeout, timeout, job_timeout,
     retries, verify_tls, poll_interval. Credentials in the URL (https://user:pass@host) work too.
 

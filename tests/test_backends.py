@@ -6,9 +6,9 @@ import pytest
 from PIL import Image
 
 import sdmux
-from sdmux.backends import A1111, ComfyUI, Forge, InvokeAI, SDNext, SwarmUI
+from sdmux.backends import A1111, ComfyUI, DrawThings, Forge, InvokeAI, SDCpp, SDNext, SwarmUI
 
-from .fakes import FakeServer, Reply, a1111_server, comfyui_server, invokeai_server, swarmui_server
+from .fakes import FakeServer, Reply, a1111_server, comfyui_server, drawthings_server, invokeai_server, sdcpp_server, swarmui_server
 
 
 def img(color=(255, 255, 255), size=(64, 64)):
@@ -669,3 +669,52 @@ def test_comfy_patch_hook_and_workflow():
     with a1111_server() as s:
         with pytest.raises(sdmux.Unsupported):
             A1111(s.url).txt2img("x", patch=lambda g: None)
+
+
+# stable-diffusion.cpp ---------------------------------------------------------------
+def test_sdcpp_detection_and_generation():
+    with sdcpp_server() as s:
+        sd = sdmux.connect(s.url)
+        assert isinstance(sd, SDCpp) and sdmux.detect(s.url).kind == "sdcpp"
+        assert [m.name for m in sd.models()] == ["sd_v1.5"] and sd.loras()[0].path == "loras/detail_tweaker.safetensors"
+        r = sd.txt2img("a cat <lora:detail_tweaker:0.5>", model="sd_v1.5", sampler="Euler a", scheduler="Karras",
+                       clip_skip=2, seed=3, steps=8)
+        body = s.last("POST", "/sdapi/v1/txt2img").json
+        assert body["prompt"] == "a cat" and "<lora" not in body["prompt"]
+        assert body["lora"] == [{"path": "loras/detail_tweaker.safetensors", "multiplier": 0.5}]
+        assert (body["sampler_name"], body["scheduler"], body["clip_skip"]) == ("euler_a", "karras", 2)
+        assert "override_settings" not in body and r.image
+        sd.img2img(img(), "a dog", denoise=0.4)
+        assert s.last("POST", "/sdapi/v1/img2img").json["denoising_strength"] == 0.4
+        with pytest.raises(sdmux.Rejected):
+            sd.txt2img("x", model="flux1-dev")  # only the loaded model is listed
+        with pytest.raises(sdmux.Unsupported):
+            sd.interrupt()
+
+
+# Draw Things ------------------------------------------------------------------------
+def test_drawthings_detection_and_generation():
+    with drawthings_server() as s:
+        sd = sdmux.connect(s.url)
+        assert isinstance(sd, DrawThings) and sdmux.detect(s.url).kind == "drawthings"
+        assert [m.name for m in sd.models()] == ["sd_v1.5_f16.ckpt"]
+        assert sd.loras()[0].name == "detail_tweaker_lora_f16.ckpt"
+        r = sd.txt2img("a cat <lora:detail_tweaker:0.8>", negative="blurry", width=520, height=770, steps=12, cfg=5,
+                       sampler="DPM++ 2M", scheduler="Karras", seed=9, clip_skip=2)
+        body = s.last("POST", "/sdapi/v1/txt2img").json
+        assert body["prompt"] == "a cat" and body["loras"] == [{"file": "detail_tweaker_lora_f16.ckpt", "weight": 0.8}]
+        assert (body["width"], body["height"]) == (512, 768)  # multiples of 64
+        assert (body["guidance_scale"], body["sampler"], body["seed"], body["clip_skip"]) == (5, "DPM++ 2M Karras", 9, 2)
+        assert "strength" not in body and r.seed == 9 and "Seed: 9" in r.parameters
+        sd.txt2img("x", sampler="Euler a", scheduler="Align Your Steps", model="other_model_f16.ckpt")
+        body = s.last("POST", "/sdapi/v1/txt2img").json
+        assert (body["sampler"], body["model"]) == ("Euler A AYS", "other_model_f16.ckpt")
+        sd.img2img(img(size=(100, 60)), "a dog", denoise=0.3, width=512, height=512)
+        body = s.last("POST", "/sdapi/v1/img2img").json
+        assert body["strength"] == 0.3 and len(body["init_images"]) == 1
+        with pytest.raises(sdmux.Rejected):
+            sd.txt2img("x", sampler="Heun")
+        with pytest.raises(sdmux.Unsupported):
+            sd.inpaint(img(), mask(), "x")
+        with pytest.raises(sdmux.Unsupported):
+            sd.interrupt()
