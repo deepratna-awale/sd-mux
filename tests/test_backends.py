@@ -529,6 +529,23 @@ def test_fixed_defaults_and_current_model():
         assert body["override_settings"]["CLIP_stop_at_last_layers"] == 2
 
 
+def test_profile_lookup_retried_after_transient_error():
+    with comfyui_server() as s:
+        sd = ComfyUI(s.url)
+        real, calls = sd.identify, {"n": 0}
+
+        def flaky(model, online=False):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise sdmux.TimedOut("slow")
+            return real(model, online=online)
+
+        sd.identify = flaky
+        assert sd.txt2img("1girl", model="waiIllustrious").defaults["steps"] == (20, "fallback")
+        r = sd.txt2img("1girl", model="waiIllustrious")
+        assert r.defaults["steps"] == (28, "profile:waiIllustriousSDXL_v170.safetensors")
+
+
 # ComfyUI node contract and graph builder --------------------------------------------------
 def test_comfy_node_discovery():
     with comfyui_server() as s:
