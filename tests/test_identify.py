@@ -408,3 +408,43 @@ def test_other_lookup_services(tmp_path, monkeypatch):
     # An archive answer without a "model" (stray files sharing the hash) counts as not found.
     answers["https://civarchive.com/api/sha256/" + "cd" * 32] = (200, {"files": [{"filename": "last.pt", "source": "huggingface"}]})
     assert not lk.lookup_civarchive("cd" * 32).found
+
+
+def test_not_found_answers_expire(tmp_path, monkeypatch):
+    import sdmux.modelinfo.civitai as cv
+    import sdmux.modelinfo.lookups as lk
+
+    monkeypatch.setenv("SDMUX_CACHE_DIR", str(tmp_path / "cache"))
+    seen = []
+    monkeypatch.setattr(lk, "_get_json", lambda url, timeout, headers=None: (seen.append(url), (404, None))[1])
+    sha = "ef" * 32
+    assert not lk.lookup_modelindex(sha).found and not lk.lookup_civarchive(sha).found
+    assert len(seen) == 2
+    lk.lookup_modelindex(sha), lk.lookup_civarchive(sha)
+    assert len(seen) == 2  # a fresh "not found" is trusted
+    monkeypatch.setenv("SDMUX_NEGATIVE_TTL", "0")
+    monkeypatch.setattr(cv.time, "time", lambda: 1e12)
+    lk.lookup_modelindex(sha), lk.lookup_civarchive(sha)
+    assert len(seen) == 4  # an expired one is asked again
+
+    class Response:
+        def __init__(self, status, body=None):
+            self.status_code, self._body = status, body
+
+        def json(self):
+            return self._body
+
+    import requests
+
+    answers = {"n": 0}
+
+    def fake_get(url, headers=None, timeout=None):
+        answers["n"] += 1
+        return Response(404) if answers["n"] <= 2 else Response(200, {"id": 1, "modelId": 2, "baseModel": "Pony"})
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    monkeypatch.delenv("SDMUX_NEGATIVE_TTL")
+    assert cv.civitai_lookup(sha) is None and cv.civitai_lookup(sha) is None
+    assert answers["n"] == 2  # both hosts asked once, then the miss is cached
+    monkeypatch.setattr(cv.time, "time", lambda: 1e12 + cv.NEGATIVE_TTL + 1)
+    assert cv.civitai_lookup(sha)["baseModel"] == "Pony"

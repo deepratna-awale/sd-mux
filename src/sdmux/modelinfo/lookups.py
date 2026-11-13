@@ -2,7 +2,8 @@
 Online lookups by sha256 across the places people upload models. Nothing here runs unless asked (online=True).
 
 Each lookup turns one service's answer into Facts (architecture, family, variant) plus Links (where the file is
-hosted). Answers are cached per service and hash; "not found" is cached too, network failures are not.
+hosted). Answers are cached per service and hash; "not found" is cached for $SDMUX_NEGATIVE_TTL seconds (default
+7 days), network failures are not cached.
 
     civitai      GET {civitai.com, civitai.red}/api/v1/model-versions/by-hash/{sha256}
                  Model-version record with baseModel ("Pony", "Illustrious", "SD 1.5", "Flux.1 D", ...).
@@ -26,7 +27,7 @@ import threading
 from dataclasses import dataclass, field
 
 from . import family as fam
-from .civitai import _read_cache, _write_cache, civitai_lookup
+from .civitai import _cached_answer, _miss, _read_cache, _write_cache, civitai_lookup
 
 _lock = threading.Lock()
 SOURCES = ("civitai", "civarchive", "modelindex", "huggingface")
@@ -93,20 +94,20 @@ def _get_json(url: str, timeout: float, headers: dict | None = None):
         return response.status_code, None
 
 
-def _cached(service: str, key: str, fetch):
-    """Run fetch() once per (service, key); cache found and not-found answers, never errors."""
+def _cached(service: str, key: str, fetch, missing=lambda value: not value):
+    """Run fetch() once per (service, key); cache found answers, not-found ones for a while, never errors."""
     cache_key = f"{service}:{key}"
     with _lock:
-        cache = _read_cache("lookups.json")
-        if cache_key in cache:
-            return cache[cache_key]
+        usable, value = _cached_answer(_read_cache("lookups.json").get(cache_key))
+        if usable:
+            return value
     try:
         value = fetch()
     except Exception:  # offline, blocked, malformed: try again next time
         return None
     with _lock:
         cache = _read_cache("lookups.json")
-        cache[cache_key] = value
+        cache[cache_key] = _miss(value) if missing(value) else value
         _write_cache("lookups.json", cache)
     return value
 
@@ -131,11 +132,13 @@ def lookup_civitai(sha256: str, timeout: float = 15.0, api_key: str | None = Non
 def lookup_civarchive(sha256: str, timeout: float = 15.0) -> Lookup:
     def fetch():
         status, body = _get_json(CIVARCHIVE.format(sha256=sha256), timeout)
+        if status == 404:
+            return {}
         if status != 200 or not isinstance(body, dict):
             raise RuntimeError(f"civarchive answered {status}")
         return body
 
-    body = _cached("civarchive", sha256, fetch)
+    body = _cached("civarchive", sha256, fetch, missing=lambda b: not (b or {}).get("model"))
     if not body or not body.get("model"):
         # Without a "model" the archive only lists stray files that happen to share the hash.
         return Lookup("civarchive", False, record=body)
