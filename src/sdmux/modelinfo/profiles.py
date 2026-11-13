@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass, field
 from functools import lru_cache
-from typing import Any
 from importlib import resources
+from typing import Any
 
 DIALECTS = ("pony", "danbooru", "e621", "clip", "natural")
 

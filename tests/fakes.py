@@ -141,7 +141,7 @@ def a1111_server(variant: str = "a1111", prefix: str = "") -> FakeServer:
     s.routes[("GET", "/sdapi/v1/samplers")] = lambda r: [{"name": n, "aliases": [], "options": {}} for n in
                                                           ("DPM++ 2M", "Euler a", "Euler", "DDIM")]
     if variant != "sdnext":
-        s.routes[("GET", "/sdapi/v1/schedulers")] = lambda r: [{"name": n, "label": l} for n, l in
+        s.routes[("GET", "/sdapi/v1/schedulers")] = lambda r: [{"name": n, "label": label} for n, label in
                                                                 (("automatic", "Automatic"), ("karras", "Karras"), ("normal", "Normal"))]
     s.routes[("GET", "/sdapi/v1/sd-models")] = lambda r: [
         {"title": "hassakuSD15_v13.safetensors [7eb674963a]", "model_name": "hassakuSD15_v13", "hash": "7eb674963a",

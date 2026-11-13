@@ -1,4 +1,3 @@
-import io
 import json
 import pickle
 import struct
@@ -6,7 +5,6 @@ import zipfile
 
 import pytest
 
-import sdmux
 from sdmux.modelinfo import identify, identify_name
 from sdmux.modelinfo.headers import HeaderError, read_header
 
@@ -396,7 +394,7 @@ def test_other_lookup_services(tmp_path, monkeypatch):
     (tmp_path / "plain.json").write_text(json.dumps({"sha256": "AB" * 32, "sd version": "SDXL"}))
     info = identify(path, online=True)
     assert info.family == "noobai" and info.why("family")[0].source == "civarchive:tensorart"
-    services = {l.service for l in info.links}
+    services = {link.service for link in info.links}
     assert {"tensorart", "seaart", "huggingface"} <= services
     results = {r.service: r for r in lk.lookup_all("ab" * 32)}
     assert results["huggingface"].facts[0].value == "sdxl"

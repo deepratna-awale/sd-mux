@@ -24,7 +24,7 @@ from PIL import Image
 
 from ..errors import Cancelled, NotReady, Rejected, SdmuxError, TimedOut, Unsupported
 from ..names import canonical_scheduler, pick_native, sampler_id
-from ..types import IMG2IMG, INPAINT, TXT2IMG, Model, Progress, Request, Result, infotext, to_png_bytes
+from ..types import INPAINT, TXT2IMG, Model, Progress, Request, Result, infotext, to_png_bytes
 from .base import Backend
 
 

@@ -240,8 +240,9 @@ Not built (room is left in `Request.extra`): hires-fix, refiner passes, ControlN
 ## Development
 
 ```bash
-pip install -e ".[test,progress]"
+pip install -e ".[test,progress,typing]" ruff
 pytest                                            # offline: fake servers + synthetic headers, no GPU, no network
+ruff check src tests && mypy                      # what CI runs besides the tests
 python tests/live_check.py http://127.0.0.1:7860 --model hassakuSD15_v13 --lora some_lora --out /tmp/live
 ```
 

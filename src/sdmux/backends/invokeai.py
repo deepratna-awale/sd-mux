@@ -18,7 +18,7 @@ import time
 
 from PIL import Image, ImageOps
 
-from ..errors import AuthRefused, Cancelled, NotReady, Rejected, TimedOut, Unsupported
+from ..errors import AuthRefused, Cancelled, Rejected, TimedOut, Unsupported
 from ..names import canonical_sampler, canonical_scheduler
 from ..types import IMG2IMG, INPAINT, TXT2IMG, Model, Progress, Request, Result, infotext, to_png_bytes
 from .base import Backend

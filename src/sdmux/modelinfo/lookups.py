@@ -233,7 +233,7 @@ def lookup_all(sha256: str, sources=DEFAULT_SOURCES, timeout: float = 15.0, civi
     if "modelindex" in sources:
         mi = lookup_modelindex(sha256, timeout)
         results.append(mi)
-        repos = [l.name for l in mi.links if l.service == "huggingface" and l.name]
+        repos = [link.name for link in mi.links if link.service == "huggingface" and link.name]
         if "huggingface" in sources and repos:
             results.append(lookup_huggingface(repos, timeout))
     return results

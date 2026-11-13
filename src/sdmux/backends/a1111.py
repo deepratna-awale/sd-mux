@@ -9,7 +9,6 @@ generate() merges Request.extra into the payload, so every field the WebUI accep
 from __future__ import annotations
 
 import json
-import time
 from typing import Any
 
 from ..errors import AuthRefused, Cancelled, Rejected, SdmuxError, TimedOut, Unreachable
