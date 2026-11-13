@@ -1,4 +1,3 @@
-import json
 import socket
 import threading
 import time
@@ -647,7 +646,7 @@ def test_comfy_graph_validation_reports_every_problem():
         with pytest.raises(ValueError):
             g.add("KSampler", model=ckpt)            # three outputs: must pick one
         with pytest.raises(AttributeError):
-            ckpt.LATENT
+            _ = ckpt.LATENT
 
 
 def test_comfy_patch_hook_and_workflow():

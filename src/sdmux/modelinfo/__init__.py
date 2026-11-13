@@ -20,10 +20,11 @@ from dataclasses import dataclass, field
 
 from . import family as fam
 from .civitai import civitai_lookup, file_sha256
-from .lookups import Link, env_sources, lookup_all
 from .headers import Header, HeaderError, read_header
+from .lookups import Link, env_sources, lookup_all
 from .profiles import Profile, build_profile
-from .rules import analyse, prediction as find_prediction, ztsnr
+from .rules import analyse, ztsnr
+from .rules import prediction as find_prediction
 
 CONFIDENCE = {"high": 3, "medium": 2, "low": 1}
 FIELDS = ("kind", "architecture", "family", "prediction", "variant")
@@ -74,7 +75,8 @@ class ModelInfo:
             "path": self.path, "name": self.name, "kind": self.kind, "architecture": self.architecture,
             "family": self.family, "prediction": self.prediction, "variant": self.variant, "format": self.format,
             "size": self.size, "sha256": self.sha256, "trained_on": self.trained_on,
-            "zero_terminal_snr": self.zero_terminal_snr, "text_encoder": self.text_encoder, "civitai": self.civitai, "links": [l.__dict__ for l in self.links],
+            "zero_terminal_snr": self.zero_terminal_snr, "text_encoder": self.text_encoder, "civitai": self.civitai,
+            "links": [link.__dict__ for link in self.links],
             "evidence": [e.__dict__ for e in self.evidence], "conflicts": self.conflicts,
             "profile": self.profile.to_dict() if self.kind in ("checkpoint", "diffusion_model", "unknown") else None,
         }
@@ -200,7 +202,7 @@ def _apply_lookups(info, candidates, sha256, sources, civitai_key, timeout) -> N
         for fact in result.facts:
             candidates.append(Evidence(fact.field, fact.value, fact.source, fact.detail, fact.confidence))
         for link in result.links:
-            if all(link.url != l.url for l in info.links):
+            if all(link.url != known.url for known in info.links):
                 info.links.append(link)
         if result.service == "civitai" and result.record:
             r = result.record
@@ -262,4 +264,5 @@ def _finish(info: ModelInfo, header: Header | None) -> None:
         pass
 
 
-__all__ = ["identify", "identify_name", "ModelInfo", "Evidence", "Profile", "build_profile", "read_header", "HeaderError"]
+__all__ = ["identify", "identify_name", "ModelInfo", "Evidence", "Profile", "build_profile", "read_header", "HeaderError",
+           "Link", "civitai_lookup"]

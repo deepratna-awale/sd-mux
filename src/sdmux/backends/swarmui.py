@@ -19,7 +19,7 @@ from PIL import Image
 
 from ..errors import AuthRefused, Cancelled, Rejected
 from ..names import canonical_scheduler, extract_loras, lora_tags, pick_native, sampler_id, split_option
-from ..types import IMG2IMG, INPAINT, TXT2IMG, Model, Progress, Request, Result, infotext, load_image, to_b64
+from ..types import IMG2IMG, INPAINT, Model, Progress, Request, Result, infotext, load_image, to_b64
 from .base import Backend
 
 # SwarmUI model class ids -> sdmux architecture names.

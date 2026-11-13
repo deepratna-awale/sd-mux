@@ -10,11 +10,11 @@ Work out which backend answers at a URL, with one cheap probe per API family:
 from __future__ import annotations
 
 import re
-from typing import Any, Callable
 from dataclasses import dataclass, field
+from typing import Any, Callable
 from urllib.parse import urlsplit
 
-from .errors import AuthRefused, NotReady, Rejected, TimedOut, Unreachable
+from .errors import AuthRefused, NotReady, Rejected, TimedOut
 from .transport import Options, Transport, redact_url
 
 # Launch flags only Forge and reForge have, as /sdapi/v1/cmd-flags reports them.

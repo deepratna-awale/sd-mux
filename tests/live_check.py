@@ -53,10 +53,10 @@ def main() -> int:
             print(f"FAIL {name}: {type(e).__name__}: {e}")
             return None
 
-    d = check("detect", lambda: sdmux.detect(args.url, **auth).__dict__)
+    check("detect", lambda: sdmux.detect(args.url, **auth).__dict__)
     sd = sdmux.connect(args.url, **auth)
     check("info", sd.info)
-    models = check("models", lambda: [m.name for m in sd.models()])
+    check("models", lambda: [m.name for m in sd.models()])
     check("loras", lambda: [m.name for m in sd.loras()][:10])
     check("samplers", sd.samplers)
     check("schedulers", sd.schedulers)
@@ -75,7 +75,8 @@ def main() -> int:
         return {"seed": r.seed, "size": r.image.size, "parameters": r.parameters.splitlines()[-1][:200]}
 
     check("txt2img", t2i)
-    base = Image.open(os.path.join(args.out, f"{sd.kind}_txt2img.png")) if os.path.exists(os.path.join(args.out, f"{sd.kind}_txt2img.png")) else Image.new("RGB", (size, size), (180, 160, 140))
+    previous = os.path.join(args.out, f"{sd.kind}_txt2img.png")
+    base = Image.open(previous) if os.path.exists(previous) else Image.new("RGB", (size, size), (180, 160, 140))
 
     def i2i():
         r = sd.img2img(base, "1girl, smile, upper body, red background", denoise=0.5, seed=7, **{k: v for k, v in common.items()})
@@ -92,8 +93,8 @@ def main() -> int:
         out = r.image.convert("RGB").resize(base.size)
         # Pixels far outside the mask should be close to the input.
         a, b = base.convert("RGB").getpixel((size // 2, size - 4)), out.getpixel((size // 2, size - 4))
-        changed_top = sum(abs(x - y) for x, y in zip(base.convert("RGB").getpixel((size // 2, 8)), out.getpixel((size // 2, 8))))
-        return {"seed": r.seed, "bottom_pixel_delta": sum(abs(x - y) for x, y in zip(a, b)), "top_pixel_delta": changed_top}
+        changed_top = sum(abs(x - y) for x, y in zip(base.convert("RGB").getpixel((size // 2, 8)), out.getpixel((size // 2, 8)), strict=True))
+        return {"seed": r.seed, "bottom_pixel_delta": sum(abs(x - y) for x, y in zip(a, b, strict=True)), "top_pixel_delta": changed_top}
 
     check("inpaint", inpaint)
 
