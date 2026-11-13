@@ -487,3 +487,57 @@ def invokeai_server(require_login: bool = False) -> FakeServer:
     s.routes[("GET", "/api/v1/images/i/*")] = authed(lambda r: Reply(200, png_bytes(color=(0, 0, 200), size=(64, 64)), "image/png"))
     s.routes[("GET", "/api/v1/queue/default/status")] = authed(lambda r: {"queue": {"in_progress": 1, "pending": 0}})
     return s
+
+
+# stable-diffusion.cpp ---------------------------------------------------------------
+def sdcpp_server() -> FakeServer:
+    s = FakeServer()
+    s.routes[("GET", "/sdcpp/v1/capabilities")] = lambda r: {"features": {}, "generation_features": {}}
+    s.routes[("GET", "/sdapi/v1/samplers")] = lambda r: [{"name": n, "aliases": [n], "options": {}}
+                                                          for n in ("default", "euler", "euler_a", "dpm++2m", "lcm")]
+    s.routes[("GET", "/sdapi/v1/schedulers")] = lambda r: [{"name": n, "label": n} for n in ("default", "discrete", "normal", "karras")]
+    s.routes[("GET", "/sdapi/v1/sd-models")] = lambda r: [{"title": "sd_v1.5", "model_name": "sd_v1.5", "filename": "sd_v1.5.safetensors",
+                                                           "hash": "8888888888", "config": None}]
+    s.routes[("GET", "/sdapi/v1/options")] = lambda r: {"samples_format": "png", "sd_model_checkpoint": "sd_v1.5"}
+    s.routes[("GET", "/sdapi/v1/loras")] = lambda r: [{"name": "detail_tweaker", "path": "loras/detail_tweaker.safetensors",
+                                                       "display_path": "detail_tweaker.safetensors"}]
+
+    def generate(r):
+        n = r.json.get("batch_size", 1)
+        return {"images": [png_b64() for _ in range(n)], "parameters": r.json, "info": json.dumps({"seed": r.json.get("seed")})}
+
+    s.routes[("POST", "/sdapi/v1/txt2img")] = generate
+    s.routes[("POST", "/sdapi/v1/img2img")] = generate
+    s.routes[("GET", "/sdapi/v1/progress")] = lambda r: {"progress": 0.0, "eta_relative": 0.0, "state": {"job": "", "job_count": 0}}
+    return s
+
+
+# Draw Things ------------------------------------------------------------------------
+DRAW_THINGS_SETTINGS = {
+    "model": "sd_v1.5_f16.ckpt", "sampler": "DPM++ 2M Karras", "steps": 20, "guidance_scale": 4.5, "seed": 1, "width": 512,
+    "height": 512, "strength": 1.0, "clip_skip": 1, "batch_size": 1, "batch_count": 1, "prompt": "", "negative_prompt": "",
+    "loras": [{"file": "detail_tweaker_lora_f16.ckpt", "weight": 0.6}], "hires_fix": False, "seed_mode": "Scale Alike",
+}
+
+
+def drawthings_server() -> FakeServer:
+    s = FakeServer()
+    s.routes[("GET", "/")] = lambda r: DRAW_THINGS_SETTINGS
+    s.routes[("GET", "/sdapi/v1/options")] = lambda r: DRAW_THINGS_SETTINGS
+
+    def generate(r):
+        unknown = [k for k in r.json if k not in DRAW_THINGS_SETTINGS and k != "init_images"]
+        if unknown:
+            return Reply(422, {"error": "HTTPException", "detail": f"Unrecognized keys: {unknown}", "body": "", "errors": ""})
+        if r.path.endswith("txt2img") and "init_images" in r.json:
+            return Reply(422, {"error": "HTTPException", "detail": "init_images is not supported for text-to-image"})
+        if r.path.endswith("img2img"):
+            image = Image.open(io.BytesIO(base64.b64decode(r.json["init_images"][0])))
+            if image.size != (r.json.get("width", 512), r.json.get("height", 512)):
+                return Reply(422, {"error": "HTTPException", "detail": "init_images width doesn't match"})
+        size = (r.json.get("width", 512), r.json.get("height", 512))
+        return {"images": [png_b64(size=size) for _ in range(r.json.get("batch_size", 1))]}
+
+    s.routes[("POST", "/sdapi/v1/txt2img")] = generate
+    s.routes[("POST", "/sdapi/v1/img2img")] = generate
+    return s

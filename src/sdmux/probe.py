@@ -4,7 +4,9 @@ Work out which backend answers at a URL, with one cheap probe per API family:
     ComfyUI     GET  /system_stats             {"system": {...}, "devices": [...]}
     InvokeAI    GET  /api/v1/app/version       {"version": "5.x"}
     SwarmUI     POST /API/GetNewSession        {"session_id": ...} or a SwarmUI error_id
-    A1111 API   GET  /sdapi/v1/samplers        a list; then A1111 vs Forge vs SD.Next from /version and /cmd-flags
+    A1111 API   GET  /sdapi/v1/samplers        a list; then stable-diffusion.cpp from /sdcpp/v1/capabilities, and
+                                               A1111 vs Forge vs SD.Next from /version and /cmd-flags
+    Draw Things GET  /sdapi/v1/options         the app's settings (guidance_scale, sampler, model, ...)
 """
 
 from __future__ import annotations
@@ -46,6 +48,8 @@ def _json(http: Transport, method: str, path: str, **kwargs):
 
 
 def _a1111_variant(http: Transport) -> tuple[str, str, str | None]:
+    if isinstance(_json(http, "GET", "/sdcpp/v1/capabilities"), dict):
+        return "sdcpp", "/sdcpp/v1/capabilities", None
     version = _json(http, "GET", "/sdapi/v1/version") or {}
     text = str(version).lower() if isinstance(version, dict) else ""
     label = None
@@ -90,6 +94,8 @@ def detect(url: str, options: Options | None = None, **overrides) -> Detection:
         ("swarmui", "POST", "/API/GetNewSession", {"json": {}},
          lambda r: isinstance(r, dict) and ("session_id" in r or "error_id" in r)),
         ("a1111", "GET", "/sdapi/v1/samplers", {}, lambda r: isinstance(r, list)),
+        ("drawthings", "GET", "/sdapi/v1/options", {},
+         lambda r: isinstance(r, dict) and "guidance_scale" in r and "sampler" in r and "sd_model_checkpoint" not in r),
     )
     try:
         for kind, method, path, kwargs, matches in probes:
@@ -136,6 +142,7 @@ def not_a_backend(url: str, detection: Detection) -> NotReady:
         )
     return NotReady(
         f"Something answers at {redact_url(url)}, but not a backend sdmux supports (tried {', '.join(detection.tried)}). "
-        "Check the port and any sub-path; A1111, Forge and reForge serve their API only when started with --api.",
+        "Check the port and any sub-path; A1111, Forge and reForge serve their API only when started with --api, "
+        "and Draw Things only with its API Server turned on (HTTP).",
         url=url,
     )
