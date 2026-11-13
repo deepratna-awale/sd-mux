@@ -6,6 +6,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- `sdmux.aio`: an asyncio client with the same methods. Cancelling an awaited generation interrupts it on the server.
 - `hires=` on `txt2img()` (a `Hires`, `True`, a scale or a dict) builds each backend's hires fix: latent, pixel or
   upscale-model upscaling followed by a second denoise pass.
 - `upscalers()` and `upscale(image, upscaler, scale)` on A1111, Forge, SD.Next and ComfyUI.

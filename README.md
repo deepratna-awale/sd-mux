@@ -68,6 +68,20 @@ loosely against the backend's list.
 
 `-` raises `Unsupported`. All of this is covered by fake-server tests only so far (mock).
 
+### asyncio
+
+```python
+import sdmux.aio
+
+async with await sdmux.aio.connect("http://127.0.0.1:8188") as sd:
+    job = asyncio.create_task(sd.txt2img("1girl", model="waiIllustrious"))
+    print(await sd.progress())                     # while the job runs
+    r = await asyncio.wait_for(job, 120)           # a cancelled or timed-out wait interrupts the job on the server
+```
+
+`sdmux.aio` has the same methods as the sync client, as coroutines (`detect`, `identify` and backend-specific ones like
+`run_workflow` included). Calls run in worker threads, so no extra dependency is needed; `sd.sync` is the sync client.
+
 ### Defaults come from the model
 
 Settings a call leaves out (size, steps, cfg, sampler and scheduler, clip skip) are filled from the model's profile,
