@@ -317,13 +317,55 @@ def test_comfy_interrupt_and_timeout():
         sd.interrupt()
         t.join(5)
         assert errors and isinstance(errors[0], sdmux.Cancelled)
-        assert s.last("POST", "/queue").json == {"delete": ["p1"]}
+        assert s.last("POST", "/interrupt").json == {"prompt_id": "p1"}  # the running prompt, nothing else
         sd2 = ComfyUI(s.url, poll_interval=0.05, job_timeout=0.3)
         with pytest.raises(sdmux.TimedOut):
             sd2.txt2img("x")
         # The timed-out job is interrupted on the server, not left running.
         assert s.last("POST", "/interrupt").json == {"prompt_id": "p2"}
         assert s.state["history"]["p2"]["status"]["messages"][0][0] == "execution_interrupted"
+
+
+def test_comfy_interrupt_before_prompt_id_is_known():
+    with comfyui_server() as s:
+        s.state["mode"] = "hang"
+        sd = ComfyUI(s.url, poll_interval=0.05)
+        real_queue = sd.queue
+
+        def queue_then_interrupt(workflow):
+            prompt_id = real_queue(workflow)
+            sd.interrupt()  # arrives before the client has recorded the prompt id
+            return prompt_id
+
+        sd.queue = queue_then_interrupt
+        with pytest.raises(sdmux.Cancelled):
+            sd.txt2img("x")
+        interrupts = [r.json for r in s.requests if (r.method, r.path) == ("POST", "/interrupt")]
+        assert interrupts == [{"prompt_id": "p1"}]  # never a bare /interrupt that could stop another client's job
+
+
+def test_interrupt_not_cleared_by_waiting_call():
+    with a1111_server() as s:
+        sd = A1111(s.url)
+        entered, release, seen = threading.Event(), threading.Event(), []
+
+        def running_job():
+            with sd._job():
+                entered.set()
+                release.wait(5)
+                seen.append(sd._cancel.is_set())
+
+        first = threading.Thread(target=running_job)
+        first.start()
+        entered.wait(5)
+        waiting = threading.Thread(target=lambda: sd.txt2img("x"))
+        waiting.start()
+        time.sleep(0.3)
+        sd._cancel.set()  # interrupt() aimed at the running job
+        release.set()
+        first.join(5)
+        waiting.join(5)
+        assert seen == [True]
 
 
 # SwarmUI ---------------------------------------------------------------------------

@@ -483,21 +483,26 @@ class ComfyUI(Backend):
 
         Raises Rejected on validation or execution errors, Cancelled on interrupt, TimedOut past the job timeout.
         """
-        self._cancel.clear()
-        with self._lock:
+        entry = self._execute(workflow, timeout)
+        images = self.fetch(entry)
+        if not images:
+            raise Rejected("ComfyUI finished without an output image.", backend=self.kind, details=entry)
+        return Result(images=images, backend=self.kind, raw={"history": entry, "workflow": workflow})
+
+    def _execute(self, workflow: dict, timeout: float | None = None) -> dict:
+        with self._job():
             stop = self._listen()
             try:
                 self._prompt_id = self.queue(workflow)
-                entry = self.wait(self._prompt_id, timeout)
+                if self._cancel.is_set():
+                    # interrupt() arrived before the prompt id was known; stop just this prompt.
+                    self.cancel(self._prompt_id)
+                return self.wait(self._prompt_id, timeout)
             finally:
                 if stop:
                     stop.set()
                 self._prompt_id = None
                 self._progress = None
-        images = self.fetch(entry)
-        if not images:
-            raise Rejected("ComfyUI finished without an output image.", backend=self.kind, details=entry)
-        return Result(images=images, backend=self.kind, raw={"history": entry, "workflow": workflow})
 
     def _generate(self, request: Request) -> Result:
         request.seed = request.resolved_seed()
@@ -510,16 +515,7 @@ class ComfyUI(Backend):
             request.patch(graph)
             graph.validate()
             workflow = graph.to_api()
-        with self._lock:
-            stop = self._listen()
-            try:
-                self._prompt_id = self.queue(workflow)
-                entry = self.wait(self._prompt_id)
-            finally:
-                if stop:
-                    stop.set()
-                self._prompt_id = None
-                self._progress = None
+        entry = self._execute(workflow)
         images = self.fetch(entry, "output")
         if not images:
             raise Rejected("ComfyUI finished without an output image.", backend=self.kind, details=entry)
@@ -580,14 +576,17 @@ class ComfyUI(Backend):
         return Progress(active=bool(running))
 
     def interrupt(self) -> None:
-        """Stop this client's prompt: drop it from the queue if it has not started, interrupt it if it has."""
+        """
+        Stop this client's prompt: drop it from the queue if it has not started, interrupt it if it has.
+        With no job of this client in flight, interrupt whatever the server is running.
+        """
         self._cancel.set()
         prompt_id = self._prompt_id
         if prompt_id:
-            self.http.request("POST", "/queue", json={"delete": [prompt_id]}, timeout=10)
-            self.http.check(self.http.request("POST", "/interrupt", json={"prompt_id": prompt_id}, timeout=10), "interrupt")
-        else:
+            self.cancel(prompt_id)
+        elif not self._lock.locked():
             self.http.check(self.http.request("POST", "/interrupt", timeout=10), "interrupt")
+        # Otherwise a job is being queued; it sees the cancel flag and stops its own prompt.
 
     # Identification -------------------------------------------------------
     def metadata(self, model: str | Model, folder: str = "checkpoints") -> dict:

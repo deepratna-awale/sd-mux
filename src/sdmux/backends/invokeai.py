@@ -304,27 +304,29 @@ class InvokeAI(Backend):
             mask = request.mask.convert("L").resize((width, height), Image.NEAREST)
             mask_name = self.upload(ImageOps.invert(mask), "mask")
         images, seeds = [], []
-        for i in range(request.batch_size):
-            seed = (request.seed + i) % (2**31)
-            graph = self.build_graph(Request(**{**request.__dict__, "seed": seed}), image_name, mask_name)
-            with self._lock:
+        with self._job():  # one job for the whole batch, so an interrupt between images is not lost
+            for i in range(request.batch_size):
+                seed = (request.seed + i) % (2**31)
+                graph = self.build_graph(Request(**{**request.__dict__, "seed": seed}), image_name, mask_name)
                 self._item_id = self.enqueue_graph(graph)
                 try:
+                    if self._cancel.is_set():
+                        self.http.request("PUT", f"{QUEUE}/i/{self._item_id}/cancel", timeout=10)
                     item = self.wait(self._item_id)
                 finally:
                     self._item_id = None
-            image = self.fetch(item)
-            if request.mode == INPAINT and work is not None:
-                # Keep pixels outside the mask exactly as they were.
-                keep = request.mask.convert("L").resize(image.size, Image.NEAREST)
-                image = Image.composite(image.convert("RGB"), work.resize(image.size), keep)
-            text = infotext(request, seed=seed, size=image.size, sampler=request.sampler, scheduler=request.scheduler,
-                            model=self.resolve_model(request.model).name, version="InvokeAI")
-            image.info["parameters"] = text
-            images.append(image)
-            seeds.append(seed)
-            if self._cancel.is_set():
-                raise Cancelled("Interrupted.", backend=self.kind)
+                image = self.fetch(item)
+                if request.mode == INPAINT and work is not None:
+                    # Keep pixels outside the mask exactly as they were.
+                    keep = request.mask.convert("L").resize(image.size, Image.NEAREST)
+                    image = Image.composite(image.convert("RGB"), work.resize(image.size), keep)
+                text = infotext(request, seed=seed, size=image.size, sampler=request.sampler, scheduler=request.scheduler,
+                                model=self.resolve_model(request.model).name, version="InvokeAI")
+                image.info["parameters"] = text
+                images.append(image)
+                seeds.append(seed)
+                if self._cancel.is_set():
+                    raise Cancelled("Interrupted.", backend=self.kind)
         return Result(images=images, seed=seeds[0], seeds=seeds, parameters=images[0].info["parameters"], backend=self.kind)
 
     # Control --------------------------------------------------------------

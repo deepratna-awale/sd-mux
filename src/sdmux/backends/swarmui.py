@@ -225,11 +225,12 @@ class SwarmUI(Backend):
 
     def _generate(self, request: Request) -> Result:
         body = self.build_body(request)
-        with self._lock:
+        with self._job():
             result = self.call("GenerateText2Image", body, timeout=self.options.job_timeout)
+            cancelled = self._cancel.is_set()
         refs = result.get("images") or []
         if not refs:
-            if self._cancel.is_set():
+            if cancelled:
                 raise Cancelled("Interrupted.", backend=self.kind)
             raise Rejected("SwarmUI returned no image.", backend=self.kind, details=result)
         images, seeds = [], []

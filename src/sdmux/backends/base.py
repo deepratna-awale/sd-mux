@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import threading
+from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 from ..errors import AuthRefused, NotReady, Rejected, SdmuxError, TimedOut, Unreachable
@@ -113,7 +114,6 @@ class Backend:
     def generate(self, request: Request) -> Result:
         request = self._prepare(request)
         filled = self._fill_defaults(request)
-        self._cancel.clear()
         result = self._generate(request)
         result.defaults = filled
         return result
@@ -191,6 +191,14 @@ class Backend:
         if request.batch_size < 1:
             raise ValueError("batch_size must be at least 1.")
         return request
+
+    @contextmanager
+    def _job(self):
+        """Hold the job lock. The cancel flag is reset only once the lock is held, so an interrupt() aimed at
+        the running job is not cleared by a call still waiting its turn."""
+        with self._lock:
+            self._cancel.clear()
+            yield
 
     # Control --------------------------------------------------------------
     def progress(self) -> Progress:
