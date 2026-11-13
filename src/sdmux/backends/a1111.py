@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import time
+from typing import Any
 
 from ..errors import AuthRefused, Cancelled, Rejected, SdmuxError, TimedOut, Unreachable
 from ..names import canonical_scheduler, extract_loras, lora_tags, pick_native, sampler_id
@@ -147,7 +148,7 @@ class A1111(Backend):
             overrides["CLIP_stop_at_last_layers"] = int(request.clip_skip)
         if request.vae:
             overrides["sd_vae"] = request.vae
-        payload = {
+        payload: dict[str, Any] = {
             "prompt": prompt,
             "negative_prompt": request.negative,
             "width": request.width,

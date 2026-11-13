@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=64"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,20 +7,32 @@ name = "sdmux"
 version = "0.1.0"
 description = "One client for every local image generation backend, with checkpoint identification built in."
 readme = "README.md"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Deepratna Awale" }]
 requires-python = ">=3.10"
-dependencies = ["requests>=2.25", "pillow>=9"]
+dependencies = ["requests>=2.25", "pillow>=9.1"]
 keywords = ["stable-diffusion", "comfyui", "automatic1111", "forge", "sdnext", "swarmui", "invokeai", "safetensors"]
 classifiers = [
-    "License :: OSI Approved :: MIT License",
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Multimedia :: Graphics",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
 ]
 
 [project.optional-dependencies]
 progress = ["websocket-client>=1.4"]
 test = ["pytest>=7"]
+typing = ["mypy>=1.10", "types-requests"]
 
 [project.scripts]
 sdmux = "sdmux.cli:main"
@@ -32,9 +44,14 @@ Homepage = "https://github.com/deepratna-awale/sdmux"
 where = ["src"]
 
 [tool.setuptools.package-data]
-sdmux = ["resources/*.json"]
+sdmux = ["resources/*.json", "py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["live: needs a running backend (set SDMUX_LIVE_URL)"]
 addopts = "-m 'not live'"
+
+[tool.mypy]
+python_version = "3.10"
+files = ["src"]
+ignore_missing_imports = true

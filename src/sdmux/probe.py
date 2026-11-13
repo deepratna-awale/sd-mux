@@ -10,6 +10,7 @@ Work out which backend answers at a URL, with one cheap probe per API family:
 from __future__ import annotations
 
 import re
+from typing import Any, Callable
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
@@ -83,7 +84,7 @@ def detect(url: str, options: Options | None = None, **overrides) -> Detection:
     detection = Detection(None)
     refused: AuthRefused | None = None
 
-    probes = (
+    probes: tuple[tuple[str, str, str, dict, Callable[[Any], bool]], ...] = (
         ("comfyui", "GET", "/system_stats", {}, lambda r: isinstance(r, dict) and "system" in r and "devices" in r),
         ("invokeai", "GET", "/api/v1/app/version", {}, lambda r: isinstance(r, dict) and "version" in r),
         ("swarmui", "POST", "/API/GetNewSession", {"json": {}},

@@ -36,7 +36,7 @@ def connect(url: str, kind: str | None = None, options: Options | None = None, d
     from .probe import detect
 
     if kind is None:
-        kind = detect(url, options, **option_overrides).kind
+        kind = detect(url, options, **option_overrides).kind or ""
     try:
         cls = BACKENDS[kind.lower()]
     except KeyError:

@@ -33,7 +33,7 @@ def split_prefix(tensors: Shapes) -> tuple[str, Shapes]:
             if key.startswith(prefix):
                 counts[prefix] += 1
                 break
-    best = max(counts, key=counts.get)
+    best = max(counts, key=lambda p: counts[p])
     if counts[best] > 5 or (counts[best] >= 2 and counts[best] * 2 >= len(tensors)):
         return best, {k[len(best):]: v for k, v in tensors.items() if k.startswith(best)}
     return "", dict(tensors)
@@ -111,12 +111,12 @@ def _unet_arch(u: Shapes, full: Shapes) -> Finding | None:
     unet = "input_blocks.0.0.weight" in k or "conv_in.weight" in k and any(".attn2." in x for x in k)
     if not unet:
         return None
-    widths = {}
+    widths: dict[int, int] = {}
     for key, shape in u.items():
         if key.endswith("attn2.to_k.weight") and shape and len(shape) == 2:
             widths[shape[1]] = widths.get(shape[1], 0) + 1
     if widths:
-        width = max(widths, key=widths.get)
+        width = max(widths, key=lambda w: widths[w])
         arch = CONTEXT_WIDTH.get(width)
         if arch:
             return Finding(arch, f"attn2.to_k.weight context width {width}")
@@ -200,13 +200,13 @@ def lora_architecture(tensors: Shapes) -> Finding | None:
         return Finding("sd3", "LoRA on joint_blocks")
     if any("transformer_blocks" in k and ("img_mlp" in k or "txt_mlp" in k) for k in keys):
         return Finding("qwen-image", "LoRA on img_mlp/txt_mlp")
-    widths = {}
+    widths: dict[int, int] = {}
     for key, shape in tensors.items():
         norm = key.replace("_", ".")
         if "attn2" in norm and "to.k" in norm and ("lora.down" in norm or "lora.A" in norm or "lora_A" in key) and shape and len(shape) == 2:
             widths[shape[1]] = widths.get(shape[1], 0) + 1
     if widths:
-        width = max(widths, key=widths.get)
+        width = max(widths, key=lambda w: widths[w])
         if width in CONTEXT_WIDTH:
             return Finding(CONTEXT_WIDTH[width], f"LoRA attn2 to_k input width {width}")
     if any(k.startswith("lora_te_") for k in keys) or any(k.startswith("lora_unet_") for k in keys):
@@ -296,8 +296,8 @@ def analyse(tensors: Shapes, metadata: dict | None = None) -> Structure:
         return Structure("embedding", Finding(arch, f"embedding width {width}", "medium") if arch else None, None)
     if is_controlnet(tensors):
         u = {k.split("control_model.", 1)[-1]: v for k, v in tensors.items()}
-        arch = _unet_arch(u, tensors) if any(".attn2." in k for k in u) else None
-        return Structure("controlnet", arch, None)
+        found = _unet_arch(u, tensors) if any(".attn2." in k for k in u) else None
+        return Structure("controlnet", found, None)
     if is_vae(tensors):
         channels = _shape(tensors, "decoder.conv_in.weight", 1) or _shape(tensors, "first_stage_model.decoder.conv_in.weight", 1)
         arch = {4: "sd", 16: "flux-vae", 32: "flux2-vae"}.get(channels)

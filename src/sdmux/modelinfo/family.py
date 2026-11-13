@@ -189,7 +189,7 @@ def sidecar_facts(path: str) -> list[Fact]:
             continue
         source = f"sidecar:{os.path.basename(sidecar)}"
         if fmt == "lora-manager":
-            civ = data.get("civitai") if isinstance(data.get("civitai"), dict) else {}
+            civ: dict = data["civitai"] if isinstance(data.get("civitai"), dict) else {}
             base = civ.get("baseModel") or (data.get("base_model") if data.get("base_model") not in (None, "Unknown") else None)
             facts += _facts_from_base(base, source, "base_model", "high")
             if data.get("sha256"):
@@ -337,7 +337,7 @@ def metadata_facts(metadata: dict) -> list[Fact]:
             counts: dict[str, int] = {}
             for fam, _ in families:
                 counts[fam] = counts.get(fam, 0) + 1
-            fam = max(counts, key=counts.get)
+            fam = max(counts, key=lambda f: counts[f])
             facts.append(Fact("family", fam, "metadata", f"{key} lists {', '.join(names[:4])}", "low"))
             break
     if metadata.get("ss_sd_model_name"):
