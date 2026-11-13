@@ -44,6 +44,30 @@ Images can be PIL images, bytes, file paths or base64 strings. Every generation 
 `batch_size`, `vae`, `mask_blur`, `inpaint_full_res`, `inpaint_padding`, and `extra={...}` for
 backend-native fields.
 
+### Hires fix and upscaling
+
+```python
+sd.txt2img("1girl", width=832, height=1216, hires=True)            # 2x latent upscale, then denoise 0.5
+sd.txt2img("1girl", hires=sdmux.Hires(scale=1.5, upscaler="4x-AnimeSharp", steps=12, denoise=0.35))
+sd.upscalers()                                                      # upscale models / methods the backend lists
+sd.upscale(image, "4x-AnimeSharp", scale=2)                         # no diffusion pass
+```
+
+`hires` takes a `Hires`, `True`, a scale, or a dict. `upscaler=None` (or `"Latent"`, `"Latent (nearest-exact)"`, ...)
+upscales the latent; `"Lanczos"`, `"Nearest"`, `"Bicubic"` resize pixels; any other name is an upscale model, matched
+loosely against the backend's list.
+
+| | hires: latent | hires: pixel / model | `upscale()` |
+|---|---|---|---|
+| A1111 / Forge / SD.Next | `enable_hr` | yes | `/sdapi/v1/extra-single-image` |
+| stable-diffusion.cpp | `enable_hr` | yes | - |
+| ComfyUI | `LatentUpscale` + second `KSampler` | decode, upscale, encode + second `KSampler` | `UpscaleModelLoader` graph |
+| SwarmUI | Refine / Upscale with the base model | yes (`model-<file>`) | - |
+| InvokeAI | `lresize` + second `denoise_latents` | - | - |
+| Draw Things | `hires_fix` | - | - |
+
+`-` raises `Unsupported`. All of this is covered by fake-server tests only so far (mock).
+
 ### Defaults come from the model
 
 Settings a call leaves out (size, steps, cfg, sampler and scheduler, clip skip) are filled from the model's profile,
@@ -225,7 +249,7 @@ Model coverage for generation:
 - **InvokeAI**: SD 1.x, SD 2.x and SDXL main models. Flux, SD3 and others use other node families in InvokeAI
   and raise `Unsupported`; use `enqueue_graph()`.
 
-Not built (room is left in `Request.extra`): hires-fix, refiner passes, ControlNet, IP-Adapter, upscalers, video.
+Not built (room is left in `Request.extra`): refiner models, ControlNet, IP-Adapter, video.
 
 ## Backend notes
 

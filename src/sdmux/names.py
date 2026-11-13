@@ -61,6 +61,16 @@ def match_choice(value: str | None, choices: list[str]) -> str | None:
     return None
 
 
+def find_choice(value: str | None, choices: list[str]) -> str | None:
+    """match_choice(), then a unique choice containing value once spaces and punctuation are ignored ("anime6b")."""
+    found = match_choice(value, choices)
+    if found or not value:
+        return found
+    wanted = re.sub(r"[^a-z0-9]", "", value.lower())
+    hits = [choice for choice in choices if wanted and wanted in re.sub(r"[^a-z0-9]", "", choice.lower())]
+    return hits[0] if len(hits) == 1 else None
+
+
 def extract_loras(prompt: str) -> tuple[str, list[tuple[str, float]]]:
     """
     Pull <lora:name:weight> tags out of a prompt.

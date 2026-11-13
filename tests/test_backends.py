@@ -718,3 +718,89 @@ def test_drawthings_detection_and_generation():
             sd.inpaint(img(), mask(), "x")
         with pytest.raises(sdmux.Unsupported):
             sd.interrupt()
+
+
+# Hires fix and upscaling ------------------------------------------------------------
+def test_hires_a1111_family():
+    with a1111_server() as s:
+        sd = A1111(s.url)
+        sd.txt2img("x", width=512, height=512, hires=True)
+        body = s.last("POST", "/sdapi/v1/txt2img").json
+        assert (body["enable_hr"], body["hr_scale"], body["hr_upscaler"], body["hr_second_pass_steps"], body["denoising_strength"]) == \
+            (True, 2.0, "Latent", 0, 0.5)
+        r = sd.txt2img("x", hires={"scale": 1.5, "upscaler": "anime6b", "steps": 10, "denoise": 0.35})
+        body = s.last("POST", "/sdapi/v1/txt2img").json
+        assert (body["hr_scale"], body["hr_upscaler"], body["hr_second_pass_steps"]) == (1.5, "R-ESRGAN 4x+ Anime6B", 10)
+        assert "Hires upscale: 1.5" not in r.parameters  # A1111 writes its own infotext
+        with pytest.raises(sdmux.Rejected):
+            sd.txt2img("x", hires=sdmux.Hires(upscaler="nope"))
+        with pytest.raises(ValueError):
+            sd.img2img(img(), "x", hires=True)
+        assert sd.upscalers() == ["Lanczos", "Nearest", "R-ESRGAN 4x+ Anime6B"]
+        up = sd.upscale(img(size=(40, 30)), "anime6b", scale=2)
+        assert up.image.size == (80, 60) and s.last("POST", "/sdapi/v1/extra-single-image").json["upscaler_1"] == "R-ESRGAN 4x+ Anime6B"
+    with sdcpp_server() as s:
+        SDCpp(s.url).txt2img("x", hires=sdmux.Hires(steps=6))
+        body = s.last("POST", "/sdapi/v1/txt2img").json
+        assert body["hr_steps"] == 6 and "hr_second_pass_steps" not in body and body["enable_hr"]
+        with pytest.raises(sdmux.Unsupported):
+            SDCpp(s.url).upscale(img())
+
+
+def test_hires_comfyui():
+    with comfyui_server() as s:
+        sd = ComfyUI(s.url)
+        r = sd.txt2img("x", model="hassaku", width=512, height=768, steps=20, hires=1.5)
+        wf = s.last("POST", "/prompt").json["prompt"]
+        up = wf["hires_upscale"]
+        assert up["class_type"] == "LatentUpscale" and (up["inputs"]["width"], up["inputs"]["height"]) == (768, 1152)
+        assert up["inputs"]["upscale_method"] == "bilinear" and up["inputs"]["samples"] == ["sampler", 0]
+        second = wf["hires_sampler"]["inputs"]
+        assert (second["latent_image"], second["denoise"], second["steps"], second["seed"]) == \
+            (["hires_upscale", 0], 0.5, 20, wf["sampler"]["inputs"]["seed"])
+        assert wf["decode"]["inputs"]["samples"] == ["hires_sampler", 0]
+        assert "Hires upscale: 1.5" in r.parameters and "Hires upscaler: Latent" in r.parameters
+        sd.txt2img("x", model="hassaku", width=512, height=512, hires={"upscaler": "4x-AnimeSharp", "steps": 8})
+        wf = s.last("POST", "/prompt").json["prompt"]
+        assert wf["hires_model"]["inputs"]["model_name"] == "4x-AnimeSharp.pth"
+        assert wf["hires_scaled"]["inputs"]["width"] == 1024 and wf["hires_upscale"]["class_type"] == "VAEEncode"
+        assert wf["hires_sampler"]["inputs"]["steps"] == 8
+        sd.txt2img("x", model="hassaku", hires={"upscaler": "Lanczos"})
+        wf = s.last("POST", "/prompt").json["prompt"]
+        assert "hires_model" not in wf and wf["hires_scaled"]["inputs"]["upscale_method"] == "lanczos"
+        assert sd.upscalers() == ["4x-AnimeSharp.pth", "RealESRGAN_x4plus.pth"]
+        sd.upscale(img(size=(40, 30)), "realesrgan", scale=3)
+        wf = s.last("POST", "/prompt").json["prompt"]
+        assert wf["model"]["inputs"]["model_name"] == "RealESRGAN_x4plus.pth"
+        assert (wf["scaled"]["inputs"]["width"], wf["scaled"]["inputs"]["height"]) == (120, 90)
+        with pytest.raises(sdmux.Rejected):
+            sd.upscale(img(), "nope")
+
+
+def test_hires_swarmui_invokeai_drawthings():
+    with swarmui_server() as s:
+        SwarmUI(s.url).txt2img("x", hires=sdmux.Hires(scale=1.5, steps=10, denoise=0.4))
+        body = s.last("POST", "/API/GenerateText2Image").json
+        assert (body["refinerupscale"], body["refinercontrolpercentage"], body["refinermethod"], body["refinersteps"],
+                body["refinerupscalemethod"]) == (1.5, 0.4, "PostApply", 25, "latent-bilinear")
+        SwarmUI(s.url).txt2img("x", hires={"upscaler": "4x-UltraSharp.pth"})
+        assert s.last("POST", "/API/GenerateText2Image").json["refinerupscalemethod"] == "model-4x-UltraSharp.pth"
+    with invokeai_server() as s:
+        sd = InvokeAI(s.url)
+        sd.txt2img("x", width=512, height=512, hires=True)
+        graph = s.state["graphs"][-1]
+        assert graph["nodes"]["hires_resize"]["width"] == 1024 and graph["nodes"]["hires_denoise"]["denoising_start"] == 0.5
+        assert {"source": {"node_id": "hires_denoise", "field": "latents"}, "destination": {"node_id": "output", "field": "latents"}} \
+            in graph["edges"]
+        with pytest.raises(sdmux.Unsupported):
+            sd.txt2img("x", hires={"upscaler": "4x-UltraSharp"})
+    with drawthings_server() as s:
+        sd = DrawThings(s.url)
+        sd.txt2img("x", width=512, height=512, hires={"scale": 1.5, "denoise": 0.6})
+        body = s.last("POST", "/sdapi/v1/txt2img").json
+        assert (body["width"], body["height"], body["hires_fix"], body["hires_fix_width"], body["hires_fix_strength"]) == \
+            (768, 768, True, 512, 0.6)
+        with pytest.raises(sdmux.Unsupported):
+            sd.txt2img("x", hires={"upscaler": "Lanczos"})
+        with pytest.raises(sdmux.Unsupported):
+            sd.upscale(img())

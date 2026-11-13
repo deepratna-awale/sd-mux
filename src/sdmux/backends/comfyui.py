@@ -23,8 +23,8 @@ from typing import Any
 from PIL import Image
 
 from ..errors import Cancelled, NotReady, Rejected, SdmuxError, TimedOut, Unsupported
-from ..names import canonical_scheduler, pick_native, sampler_id
-from ..types import INPAINT, TXT2IMG, Model, Progress, Request, Result, infotext, to_png_bytes
+from ..names import canonical_scheduler, find_choice, pick_native, sampler_id
+from ..types import INPAINT, PIXEL_UPSCALE, TXT2IMG, Model, Progress, Request, Result, infotext, load_image, to_png_bytes
 from .base import Backend
 
 
@@ -371,7 +371,10 @@ class ComfyUI(Backend):
                 "denoise": 1.0 if request.mode == TXT2IMG else min(max(float(request.denoise), 0.0), 1.0),
             },
         )
-        workflow["decode"] = self._node("VAEDecode", {"samples": ["sampler", 0], "vae": vae_link})
+        samples = ["sampler", 0]
+        if request.hires is not None:
+            samples = self._hires(workflow, request, samples, vae_link)
+        workflow["decode"] = self._node("VAEDecode", {"samples": samples, "vae": vae_link})
         output = ["decode", 0]
         if request.mode == INPAINT:
             # Keep pixels outside the mask exactly as they were, as A1111 does.
@@ -381,6 +384,66 @@ class ComfyUI(Backend):
             output = ["composite", 0]
         workflow["output"] = {"class_type": "PreviewImage", "inputs": {"images": output}}
         return workflow
+
+    def _hires(self, workflow: dict, request: Request, samples: list, vae_link: list) -> list:
+        """Upscale the first pass (latent, pixels or an upscale model) and sample it again; returns the new latent."""
+        hires = request.hires
+        width, height = hires.size(*request.size())
+        if hires.latent_method:
+            method = self._pick(hires.latent_method, "LatentUpscale", "upscale_method", str.lower, "nearest-exact")
+            workflow["hires_upscale"] = self._node("LatentUpscale", {"samples": samples, "upscale_method": method,
+                                                                     "width": width, "height": height, "crop": "disabled"})
+        else:
+            workflow["hires_pixels"] = self._node("VAEDecode", {"samples": samples, "vae": vae_link})
+            pixels = ["hires_pixels", 0]
+            method = hires.pixel_method
+            if method is None:
+                assert hires.upscaler is not None  # a model name
+                workflow["hires_model"] = self._node("UpscaleModelLoader", {"model_name": self._upscale_model(hires.upscaler)})
+                workflow["hires_model_upscaled"] = self._node("ImageUpscaleWithModel", {"upscale_model": ["hires_model", 0],
+                                                                                        "image": pixels})
+                pixels, method = ["hires_model_upscaled", 0], "lanczos"
+            workflow["hires_scaled"] = self._node("ImageScale", {"image": pixels, "upscale_method": method,
+                                                                 "width": width, "height": height, "crop": "disabled"})
+            workflow["hires_upscale"] = self._node("VAEEncode", {"pixels": ["hires_scaled", 0], "vae": vae_link})
+        second = dict(workflow["sampler"]["inputs"])
+        second.update(latent_image=["hires_upscale", 0], steps=hires.steps or request.steps,
+                      denoise=min(max(float(hires.denoise), 0.0), 1.0))
+        workflow["hires_sampler"] = self._node("KSampler", second)
+        return ["hires_sampler", 0]
+
+    def _upscale_model(self, wanted: str) -> str:
+        names = self.upscalers()
+        found = find_choice(wanted, names)
+        if not found:
+            raise Rejected(f"ComfyUI has no upscale model matching {wanted!r}. It lists: {', '.join(names) or 'none'}",
+                           backend=self.kind)
+        return found
+
+    # Upscaling ------------------------------------------------------------
+    def upscalers(self) -> list[str]:
+        """Upscale models in models/upscale_models."""
+        return self.options_for("UpscaleModelLoader", "model_name")
+
+    def upscale(self, image, upscaler: str | None = None, scale: float = 2.0) -> Result:
+        """Upscale with a model from upscale_models (or a plain resize: "Lanczos", "Bicubic", ...) to scale x the size."""
+        source = load_image(image)
+        width, height = int(source.width * scale), int(source.height * scale)
+        workflow: dict = {"image": self._node("LoadImage", {"image": self.upload(source)})}
+        pixels, method = ["image", 0], PIXEL_UPSCALE.get((upscaler or "lanczos").strip().lower())
+        if method is None:
+            assert upscaler is not None
+            workflow["model"] = self._node("UpscaleModelLoader", {"model_name": self._upscale_model(upscaler)})
+            workflow["upscaled"] = self._node("ImageUpscaleWithModel", {"upscale_model": ["model", 0], "image": pixels})
+            pixels, method = ["upscaled", 0], "lanczos"
+        workflow["scaled"] = self._node("ImageScale", {"image": pixels, "upscale_method": method, "width": width,
+                                                       "height": height, "crop": "disabled"})
+        workflow["output"] = {"class_type": "PreviewImage", "inputs": {"images": ["scaled", 0]}}
+        entry = self._execute(workflow)
+        images = self.fetch(entry, "output")
+        if not images:
+            raise Rejected("ComfyUI finished without an output image.", backend=self.kind, details=entry)
+        return Result(images=images, backend=self.kind, raw={"history": entry, "workflow": workflow})
 
     # Running --------------------------------------------------------------
     def upload(self, image: Image.Image, kind: str = "image") -> str:

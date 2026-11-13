@@ -60,7 +60,15 @@ class SDCpp(A1111):
         _, loras = self.resolve_loras(request.prompt)
         if loras:
             payload["lora"] = [{"path": m.path or m.name, "multiplier": weight} for m, weight in loras]
+        if "hr_second_pass_steps" in payload:
+            steps = payload.pop("hr_second_pass_steps")
+            if steps:
+                payload["hr_steps"] = steps
         return payload
+
+    def upscale(self, image, upscaler: str | None = None, scale: float = 2.0):
+        raise Unsupported("stable-diffusion.cpp upscales with a fixed-scale ESRGAN model through its own API; "
+                          "use sd.api('/sdcpp/v1/upscale', ...).", backend=self.kind)
 
     def interrupt(self) -> None:
         raise Unsupported("stable-diffusion.cpp's /sdapi/v1 API has no interrupt.", backend=self.kind)

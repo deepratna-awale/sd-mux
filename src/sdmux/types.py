@@ -67,9 +67,11 @@ class Request:
     scheduler, clip_skip) are filled from the model's profile (see Backend defaults). clip_skip uses A1111 numbering (1 = none,
     2 = skip the last layer). For inpaint, white mask pixels are repainted.
 
+    hires (txt2img only) adds a second pass: upscale by hires.scale, then denoise again. It takes a Hires,
+    True (2x latent), a scale, or a dict of Hires fields.
+
     extra holds backend-native fields merged into the native request as-is
-    (A1111 payload keys, SwarmUI params, ...). Room for hires-fix, ControlNet and
-    the like is left there and in future fields; they are not built yet.
+    (A1111 payload keys, SwarmUI params, ...). Room for ControlNet and the like is left there.
     """
 
     prompt: str = ""
@@ -92,6 +94,7 @@ class Request:
     inpaint_full_res: bool = False
     inpaint_padding: int = 32
     vae: str | None = None
+    hires: Any = None
     extra: dict = field(default_factory=dict)
     patch: Any = None  # ComfyUI only: callable(Graph) that edits the built graph before it runs
 
@@ -103,6 +106,64 @@ class Request:
         if self.width is None or self.height is None:
             raise ValueError("width and height are not set.")
         return int(self.width) // multiple * multiple, int(self.height) // multiple * multiple
+
+
+@dataclass
+class Hires:
+    """
+    Hires fix: generate at the requested size, upscale by scale, then run steps more at denoise strength.
+
+    upscaler None (or "Latent", "Latent (nearest-exact)", ...) upscales the latent. "Lanczos", "Nearest", "Bicubic",
+    "Bilinear" or "Area" upscale pixels; any other name is an upscale model the backend lists. steps None reuses the
+    first pass's step count.
+    """
+
+    scale: float = 2.0
+    upscaler: str | None = None
+    steps: int | None = None
+    denoise: float = 0.5
+
+    @classmethod
+    def coerce(cls, value: Any) -> Hires | None:
+        if value is None or value is False:
+            return None
+        if value is True:
+            return cls()
+        if isinstance(value, cls):
+            return value
+        if isinstance(value, (int, float)):
+            return cls(scale=float(value))
+        if isinstance(value, dict):
+            return cls(**value)
+        raise TypeError(f"hires takes a Hires, True, a scale or a dict, not {type(value).__name__}.")
+
+    def size(self, width: int, height: int, multiple: int = 8) -> tuple[int, int]:
+        """The second pass's size for a first pass of width x height."""
+        return int(width * self.scale) // multiple * multiple, int(height * self.scale) // multiple * multiple
+
+    @property
+    def latent_method(self) -> str | None:
+        """The interpolation of a latent upscale ("bilinear", "nearest-exact", ...); None for pixel or model upscalers."""
+        name = (self.upscaler or "latent").strip().lower()
+        return LATENT_UPSCALE.get(name)
+
+    @property
+    def pixel_method(self) -> str | None:
+        """The interpolation of a plain pixel resize ("lanczos", ...); None for latent or model upscalers."""
+        return PIXEL_UPSCALE.get((self.upscaler or "").strip().lower())
+
+
+LATENT_UPSCALE = {
+    "latent": "bilinear",
+    "latent (antialiased)": "bilinear",
+    "latent (bicubic)": "bicubic",
+    "latent (bicubic antialiased)": "bicubic",
+    "latent (nearest)": "nearest-exact",
+    "latent (nearest-exact)": "nearest-exact",
+    "latent (area)": "area",
+    "latent (bislerp)": "bislerp",
+}
+PIXEL_UPSCALE = {"lanczos": "lanczos", "nearest": "nearest-exact", "bicubic": "bicubic", "bilinear": "bilinear", "area": "area"}
 
 
 @dataclass
@@ -169,6 +230,7 @@ def infotext(request: Request, *, seed: int | None, size: tuple[int, int], sampl
 
     prompt, parsed = extract_loras(request.prompt)
     tags = lora_tags(loras if loras is not None else parsed)
+    hires = Hires.coerce(request.hires) if request.mode == TXT2IMG else None
     fields = {
         "Steps": request.steps,
         "Sampler": a1111_sampler_label(sampler or request.sampler),
@@ -177,7 +239,10 @@ def infotext(request: Request, *, seed: int | None, size: tuple[int, int], sampl
         "Seed": seed,
         "Size": f"{size[0]}x{size[1]}",
         "Model": model or request.model,
-        "Denoising strength": f"{request.denoise:g}" if request.mode != TXT2IMG else None,
+        "Denoising strength": f"{request.denoise:g}" if request.mode != TXT2IMG else hires and f"{hires.denoise:g}",
+        "Hires upscale": hires and f"{hires.scale:g}",
+        "Hires steps": hires and hires.steps,
+        "Hires upscaler": hires and (hires.upscaler or "Latent"),
         "Clip skip": request.clip_skip if request.clip_skip and request.clip_skip > 1 else None,
         "Version": version,
     }

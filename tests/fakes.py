@@ -190,6 +190,14 @@ def a1111_server(variant: str = "a1111", prefix: str = "") -> FakeServer:
         return {}
 
     s.routes[("POST", "/sdapi/v1/interrupt")] = interrupt
+    s.routes[("GET", "/sdapi/v1/upscalers")] = lambda r: [{"name": n} for n in ("None", "Lanczos", "Nearest", "R-ESRGAN 4x+ Anime6B")]
+
+    def extra_single(r):
+        image = Image.open(io.BytesIO(base64.b64decode(r.json["image"])))
+        size = (int(image.width * r.json["upscaling_resize"]), int(image.height * r.json["upscaling_resize"]))
+        return {"image": png_b64(size=size), "html_info": ""}
+
+    s.routes[("POST", "/sdapi/v1/extra-single-image")] = extra_single
     s.routes[("GET", "/sdapi/v1/progress")] = lambda r: {"progress": 0.5, "eta_relative": 3.0,
                                                          "state": {"job": "job1", "job_count": 1, "sampling_step": 10, "sampling_steps": 20}}
     return s
@@ -231,6 +239,8 @@ COMFY_NODES = {
     "ImageScale": {"input": {"required": {"image": ["IMAGE"], "upscale_method": [["nearest-exact", "bilinear", "lanczos"]],
                                           "width": ["INT"], "height": ["INT"], "crop": [["disabled", "center"]]}}},
     "RepeatLatentBatch": {"input": {"required": {"samples": ["LATENT"], "amount": ["INT", {"default": 1}]}}},
+    "LatentUpscale": {"input": {"required": {"samples": ["LATENT"], "upscale_method": [["nearest-exact", "bilinear", "area", "bicubic", "bislerp"]],
+                                             "width": ["INT"], "height": ["INT"], "crop": [["disabled", "center"]]}}},
     "MaskToImage": {"input": {"required": {"mask": ["MASK"]}}},
     "ImageToMask": {"input": {"required": {"image": ["IMAGE"], "channel": [["red", "green", "blue", "alpha"]]}}},
     "PreviewImage": {"input": {"required": {"images": ["IMAGE"]}}},
@@ -258,6 +268,7 @@ COMFY_OUTPUTS = {
     "ImageCompositeMasked": (["IMAGE"], None),
     "ImageScale": (["IMAGE"], None),
     "RepeatLatentBatch": (["LATENT"], None),
+    "LatentUpscale": (["LATENT"], None),
     "MaskToImage": (["IMAGE"], None),
     "ImageToMask": (["MASK"], None),
     "PreviewImage": ([], None),
@@ -516,7 +527,8 @@ def sdcpp_server() -> FakeServer:
 DRAW_THINGS_SETTINGS = {
     "model": "sd_v1.5_f16.ckpt", "sampler": "DPM++ 2M Karras", "steps": 20, "guidance_scale": 4.5, "seed": 1, "width": 512,
     "height": 512, "strength": 1.0, "clip_skip": 1, "batch_size": 1, "batch_count": 1, "prompt": "", "negative_prompt": "",
-    "loras": [{"file": "detail_tweaker_lora_f16.ckpt", "weight": 0.6}], "hires_fix": False, "seed_mode": "Scale Alike",
+    "loras": [{"file": "detail_tweaker_lora_f16.ckpt", "weight": 0.6}], "hires_fix": False, "hires_fix_width": 448,
+    "hires_fix_height": 448, "hires_fix_strength": 0.7, "seed_mode": "Scale Alike",
 }
 
 
