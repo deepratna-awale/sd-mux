@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import time
 
-from ..errors import Cancelled, Rejected, SdmuxError
+from ..errors import AuthRefused, Cancelled, Rejected, SdmuxError, TimedOut, Unreachable
 from ..names import canonical_scheduler, extract_loras, lora_tags, pick_native, sampler_id
 from ..types import IMG2IMG, INPAINT, TXT2IMG, Model, Progress, Request, Result, load_image, to_b64
 from .base import Backend
@@ -97,6 +97,8 @@ class A1111(Backend):
         """The checkpoint loaded on the server, which a request without model= runs on."""
         try:
             return self.http.get_json("/sdapi/v1/options", timeout=30).get("sd_model_checkpoint") or None
+        except (Unreachable, TimedOut, AuthRefused):
+            raise
         except SdmuxError:
             return None
 

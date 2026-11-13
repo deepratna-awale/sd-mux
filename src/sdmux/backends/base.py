@@ -6,8 +6,7 @@ import os
 import threading
 from typing import TYPE_CHECKING
 
-from ..errors import NotReady, Rejected
-from ..errors import SdmuxError
+from ..errors import AuthRefused, NotReady, Rejected, SdmuxError, TimedOut, Unreachable
 from ..names import canonical_scheduler, extract_loras, lora_stem, match_choice
 from ..transport import Options, Transport
 from ..types import IMG2IMG, INPAINT, TXT2IMG, Model, Progress, Request, Result, load_image
@@ -124,13 +123,16 @@ class Backend:
         return None
 
     def _profile_for(self, model):
-        key = model.name if isinstance(model, Model) else (model or self.current_model() or "")
-        if key not in self._profiles:
-            try:
-                resolved = self.resolve_model(model or self.current_model())
+        key = ""
+        try:
+            key = model.name if isinstance(model, Model) else (model or self.current_model() or "")
+            if key not in self._profiles:
+                resolved = self.resolve_model(model or key or None)
                 self._profiles[key] = (resolved.name, self.identify(resolved).profile)
-            except (SdmuxError, OSError, ValueError):
-                self._profiles[key] = (None, None)
+        except (Unreachable, TimedOut, AuthRefused):
+            return None, None  # not cached: the next call tries again
+        except (SdmuxError, OSError, ValueError):
+            self._profiles[key] = (None, None)
         return self._profiles[key]
 
     def _fill_defaults(self, request: Request) -> dict:
