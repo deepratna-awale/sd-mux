@@ -339,8 +339,18 @@ def comfyui_server() -> FakeServer:
         return {}
 
     s.routes[("POST", "/interrupt")] = interrupt
-    s.routes[("POST", "/queue")] = lambda r: {}
-    s.routes[("GET", "/queue")] = lambda r: {"queue_running": [], "queue_pending": []}
+    def queue_delete(r):
+        for pid in (r.json or {}).get("delete", []):
+            s.state["history"].setdefault(pid, {"status": {"status_str": "error", "completed": False,
+                                                           "messages": [["execution_interrupted", {}]]}, "outputs": {}})
+        return {}
+
+    def queue_state(r):
+        live = [[n, pid, wf, {}, []] for n, (pid, wf) in enumerate(s.state["queued"]) if pid not in s.state["history"]]
+        return {"queue_running": live[:1], "queue_pending": live[1:]}
+
+    s.routes[("POST", "/queue")] = queue_delete
+    s.routes[("GET", "/queue")] = queue_state
     s.routes[("GET", "/view_metadata/checkpoints")] = lambda r: {"modelspec.title": "WAI"}
     return s
 

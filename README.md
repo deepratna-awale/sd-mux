@@ -140,7 +140,7 @@ g = sd.workflow(prompt="1girl", model="waiIllustrious")   # a Graph; g.to_api() 
 | Backend | Native path |
 |---|---|
 | A1111 / Forge / SD.Next | `sd.api("txt2img", payload)` posts to any `/sdapi/v1` route; `extra=` merges into the payload |
-| ComfyUI | `sd.graph()` + `sd.run()` for any node; `sd.run_workflow(api_format_dict)`; also `upload()`, `queue()`, `wait()`, `fetch()`, `object_info()` |
+| ComfyUI | `sd.graph()` + `sd.run()` for any node; `sd.run_workflow(api_format_dict)`; also `upload()`, `queue()`, `wait()`, `cancel()`, `fetch()`, `object_info()` |
 | SwarmUI | `sd.call("Route", body)` with a live session; `extra=` merges into `GenerateText2Image` |
 | InvokeAI | `sd.enqueue_graph(graph)`, `sd.wait(item_id)`, `sd.fetch(item)`, `sd.upload(image)` |
 
