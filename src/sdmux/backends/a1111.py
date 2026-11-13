@@ -187,8 +187,9 @@ class A1111(Backend):
     def _generate(self, request: Request) -> Result:
         payload = self.build_payload(request)
         route = "/sdapi/v1/txt2img" if request.mode == TXT2IMG else "/sdapi/v1/img2img"
-        with self._lock:
+        with self._job():
             response = self.http.request("POST", route, json=payload, timeout=self.options.job_timeout)
+            cancelled = self._cancel.is_set()
         if response.status_code >= 400:
             raise Rejected(f"{self.label} rejected the request ({response.status_code}): {_error_text(response)}",
                            backend=self.kind, details=response.text)
@@ -199,7 +200,7 @@ class A1111(Backend):
         except (TypeError, ValueError):
             info = {}
         if not images_b64:
-            if self._cancel.is_set() or info.get("interrupted"):
+            if cancelled or info.get("interrupted"):
                 raise Cancelled("Interrupted.", backend=self.kind)
             raise Rejected(f"{self.label} returned no image.", backend=self.kind, details=body)
         infotexts = info.get("infotexts") or []
@@ -211,7 +212,7 @@ class A1111(Backend):
             if index < len(infotexts):
                 image.info["parameters"] = infotexts[index]
             images.append(image)
-        if self._cancel.is_set():
+        if cancelled:
             # A1111 answers an interrupted job with the partially denoised image; it is kept in details.
             raise Cancelled("Interrupted.", backend=self.kind, details={"partial_images": images, "info": info})
         return Result(
